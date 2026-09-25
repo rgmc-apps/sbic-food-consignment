@@ -1,7 +1,7 @@
 <template>
   <ion-page>
     <ion-content :fullscreen="true" class="login-content">
-      <div class="login-body">
+      <div class="login-body animate-in">
         <img src="/logo-main.png" alt="SBIC Consignment - Food And Beverages" class="login-logo" />
         <h1 class="login-title">SBIC Consignment</h1>
         <p class="login-sub">Food And Beverages</p>
@@ -20,12 +20,15 @@
               </ion-select-option>
             </ion-select>
           </ion-item>
-          <p v-if="loadingCompanies" class="login-hint"><ion-spinner name="dots" /> Loading companies…</p>
-          <p v-else-if="companiesError" class="login-hint login-hint--error">
-            {{ companiesError }}
-            <ion-button size="small" fill="clear" @click="loadCompanies">Retry</ion-button>
-          </p>
-          <p v-else-if="!companies.length" class="login-hint">No food-consignment companies are configured yet.</p>
+          <Transition name="view-fade" mode="out-in">
+            <p v-if="loadingCompanies" key="loading" class="login-hint"><ion-spinner name="dots" /> Loading companies…</p>
+            <p v-else-if="companiesError" key="error" class="login-hint login-hint--error">
+              {{ companiesError }}
+              <ion-button size="small" fill="clear" @click="loadCompanies">Retry</ion-button>
+            </p>
+            <p v-else-if="!companies.length" key="empty" class="login-hint">No food-consignment companies are configured yet.</p>
+            <span v-else key="none" />
+          </Transition>
 
           <ion-item class="login-field" lines="none">
             <ion-label position="stacked">Username</ion-label>
@@ -58,7 +61,7 @@
           </ion-button>
         </form>
 
-        <p class="login-footer">SBIC — Online Merch Team © {{ year }}</p>
+        <p class="login-footer">IT/MIS Team © {{ year }}</p>
       </div>
     </ion-content>
 

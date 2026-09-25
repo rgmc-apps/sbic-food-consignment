@@ -19,36 +19,40 @@
       </ion-toolbar>
     </ion-header>
     <ion-content>
-      <div v-if="loading" class="state-block">
-        <ion-spinner name="crescent" />
-        <p>Loading customers…</p>
-      </div>
-      <div v-else-if="error" class="state-block state-block--error">
-        <p>{{ error }}</p>
-        <ion-button size="small" fill="outline" @click="fetchCustomers">Retry</ion-button>
-      </div>
-      <div v-else-if="!customers.length" class="state-block">
-        <p>No customers found.</p>
-      </div>
-      <template v-else>
-        <ion-list lines="full">
-          <ion-item v-for="c in customers" :key="c.id" button @click="pick(c)">
-            <ion-label>
-              <h2>{{ c.displayName }}</h2>
-              <p>#{{ c.number }}{{ c.city ? ` · ${c.city}` : '' }}</p>
-            </ion-label>
-          </ion-item>
-        </ion-list>
-        <div class="pager">
-          <ion-button fill="clear" size="small" :disabled="offset === 0" @click="goPrevPage">
-            <ion-icon :icon="chevronBackOutline" slot="start" /> Prev
-          </ion-button>
-          <span class="pager-label">{{ pagerLabel }}</span>
-          <ion-button fill="clear" size="small" :disabled="!hasNextPage" @click="goNextPage">
-            Next <ion-icon :icon="chevronForwardOutline" slot="end" />
-          </ion-button>
+      <Transition name="view-fade" mode="out-in">
+        <div v-if="loading" key="loading" class="skel-list">
+          <div v-for="n in 6" :key="n" class="skel-row">
+            <div class="skel-bone" />
+            <div class="skel-bone" />
+          </div>
         </div>
-      </template>
+        <div v-else-if="error" key="error" class="state-block state-block--error">
+          <p>{{ error }}</p>
+          <ion-button size="small" fill="outline" @click="fetchCustomers">Retry</ion-button>
+        </div>
+        <div v-else-if="!customers.length" key="empty" class="state-block">
+          <p>No customers found.</p>
+        </div>
+        <div v-else key="results" class="items-results">
+          <ion-list lines="full">
+            <ion-item v-for="c in customers" :key="c.id" button @click="pick(c)">
+              <ion-label>
+                <h2>{{ c.displayName }}</h2>
+                <p>#{{ c.number }}{{ c.city ? ` · ${c.city}` : '' }}</p>
+              </ion-label>
+            </ion-item>
+          </ion-list>
+          <div class="pager">
+            <ion-button fill="clear" size="small" :disabled="offset === 0" @click="goPrevPage">
+              <ion-icon :icon="chevronBackOutline" slot="start" /> Prev
+            </ion-button>
+            <span class="pager-label">{{ pagerLabel }}</span>
+            <ion-button fill="clear" size="small" :disabled="!hasNextPage" @click="goNextPage">
+              Next <ion-icon :icon="chevronForwardOutline" slot="end" />
+            </ion-button>
+          </div>
+        </div>
+      </Transition>
     </ion-content>
   </ion-page>
 </template>
@@ -57,7 +61,7 @@
 import { ref, computed } from 'vue';
 import {
   IonPage, IonHeader, IonToolbar, IonTitle, IonButtons, IonButton, IonIcon, IonSearchbar,
-  IonContent, IonList, IonItem, IonLabel, IonSpinner, modalController,
+  IonContent, IonList, IonItem, IonLabel, modalController,
 } from '@ionic/vue';
 import { closeOutline, chevronBackOutline, chevronForwardOutline } from 'ionicons/icons';
 import { ApiService } from '@/services/api.service';
@@ -65,7 +69,10 @@ import type { Customer } from '@/types';
 
 const PAGE_SIZE = 25;
 
-const emit = defineEmits<{ picked: [Customer] }>();
+// Data goes back to the caller via modalController.dismiss(data, role) — see
+// the equivalent comment in ItemSelectorModal.vue for why emit() cannot work
+// here (Ionic Vue's modalController never wires this component's emits to
+// anything the caller can listen for).
 
 const searchTerm = ref('');
 const customers = ref<Customer[]>([]);
@@ -118,8 +125,7 @@ function goPrevPage(): void {
 fetchCustomers();
 
 function pick(c: Customer): void {
-  emit('picked', c);
-  modalController.dismiss();
+  modalController.dismiss(c, 'picked');
 }
 </script>
 

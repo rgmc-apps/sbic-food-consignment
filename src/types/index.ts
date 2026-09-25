@@ -123,3 +123,34 @@ export interface Page<T> {
   limit: number;
   offset: number;
 }
+
+export type OrderHistoryStatus = 'success' | 'failed';
+
+/** One line as recorded in order history — a snapshot at submit time, not a
+ *  live reference back to BC. */
+export interface OrderHistoryLine {
+  itemNumber: string;
+  description?: string;
+  quantity: number;
+  unitOfMeasureCode?: string;
+}
+
+/** One order-submission attempt, written to the food app's own Firestore
+ *  history collection right after every /food/sales-orders call resolves —
+ *  success or failure. Unrelated to ScanSession/localStorage drafts: this is
+ *  the durable, cross-device record of what was actually submitted. */
+export interface OrderHistoryRecord {
+  id: string;
+  username: string;
+  userDisplayName?: string;
+  companyCode?: string;
+  customerNumber?: string;
+  customerDisplayName?: string;
+  orderNumber?: string;
+  postingDate?: string;
+  status: OrderHistoryStatus;
+  salesOrderNumber?: string;
+  errorMessage?: string;
+  lines: OrderHistoryLine[];
+  createdAt: string;
+}

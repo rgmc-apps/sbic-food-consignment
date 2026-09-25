@@ -13,6 +13,7 @@ const routes: RouteRecordRaw[] = [
       { path: '', redirect: '/app/home' },
       { path: 'home', component: () => import('@/views/HomePage.vue') },
       { path: 'scan', component: () => import('@/views/ScanPage.vue') },
+      { path: 'history', component: () => import('@/views/HistoryPage.vue') },
     ],
   },
   { path: '/app/submit', component: () => import('@/views/SubmitPage.vue') },

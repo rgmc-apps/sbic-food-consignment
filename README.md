@@ -159,7 +159,8 @@ sbic-consignment-food/
 │   │   └── index.ts                # route table (see Screens / Routes above)
 │   ├── services/
 │   │   ├── api.service.ts          # single Axios instance + every /food/* call
-│   │   └── draft.service.ts        # the ONLY localStorage usage — auth + draft autosave
+│   │   ├── draft.service.ts        # the ONLY localStorage usage — auth + draft autosave
+│   │   └── item-prefetch.service.ts  # splash-time item warm-up, consumed once, never a cache
 │   ├── stores/
 │   │   ├── auth.store.ts           # login, bcrypt/legacy password logic, session identity
 │   │   └── session.store.ts        # active order + drafts (Pinia)
@@ -313,6 +314,15 @@ This app stores exactly three things in `localStorage` — and nothing else. The
 | `sbic_food_drafts_v1` | `draft.service.ts` (`saveDraft` / `removeDraft`) | Every not-yet-submitted order (customer, posting date, order number, lines) | On nearly every field change in Scan, and on navigating away — this is the app's **only** answer to a network outage: work in progress survives, catalog data does not |
 
 > 💡 Every customer, item, lot, and unit-of-measure list you see on screen was fetched moments ago and will be fetched again the next time that screen is shown — there is no "last synced" timestamp anywhere in this app, because there is nothing to keep in sync.
+
+**One narrow, deliberate exception:** `item-prefetch.service.ts`. For a *returning* user (company already known from `sbic_food_company_v1`, no login step needed), `SplashPage` fires a fire-and-forget `GET /food/items` for the first unfiltered page while the splash delay/redirect plays out, purely to warm up the backend's BC access token and connection before the user reaches Add Items. It is **not a cache**:
+
+- It's held in a module-level variable, not `localStorage` — gone on refresh.
+- It's consumed **exactly once**, by the very next `ItemSelectorModal` open, and only if that open is an unfiltered first page (any search or page 2+ always fetches live).
+- It expires after 30 seconds even if unconsumed.
+- It's cleared on logout.
+
+The effect is purely on perceived latency for the *first* Add Items open after login — it never changes what data reaches the screen, since it's the exact same endpoint/params the modal would have called anyway.
 
 ---
 

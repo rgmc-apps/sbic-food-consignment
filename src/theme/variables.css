@@ -219,6 +219,49 @@ ion-content::part(scroll) {
   }
 }
 
+/* ── Desktop (≥1024px): pages that opt in via class="wide-content" get a
+   genuinely desktop-width canvas instead of the mobile/tablet reading-width
+   cap, so their multi-column layouts (see each view's <style>) have room. ── */
+@media (min-width: 1024px) {
+  ion-content.wide-content::part(scroll) {
+    max-width: 1120px;
+  }
+}
+
+/* ── Desktop tab strip: same ion-tab-bar as mobile, repositioned to slot="top"
+   and restyled as a left-aligned horizontal strip (TabsPage.vue decides the
+   slot/layout per viewport; this only handles the visual shape). ── */
+ion-tab-bar.tab-bar-desktop {
+  --background: var(--app-header-bg);
+  border-top: none;
+  border-bottom: 1px solid var(--app-blue-dark);
+  justify-content: flex-start;
+  height: 48px;
+  padding-left: max(16px, calc((100% - 1120px) / 2));
+}
+
+ion-tab-bar.tab-bar-desktop ion-tab-button {
+  flex: 0 0 auto;
+  min-width: 0;
+  padding: 0 18px;
+  font-size: var(--text-sm);
+  border-bottom: 2px solid transparent;
+}
+
+ion-tab-bar.tab-bar-desktop ion-tab-button.tab-selected {
+  border-bottom-color: var(--app-gold-light);
+}
+
+ion-tab-bar.tab-bar-desktop ion-icon {
+  font-size: 16px;
+  margin-inline-end: 6px;
+}
+
+ion-tab-bar.tab-bar-desktop ion-badge {
+  position: static;
+  margin-inline-start: 6px;
+}
+
 ion-card {
   --background: var(--app-surface);
   border-radius: var(--app-radius-lg);
@@ -265,6 +308,18 @@ ion-button {
   --border-radius: var(--app-radius-sm);
   font-weight: 600;
   letter-spacing: 0.3px;
+  transition: transform 0.15s var(--ease-out-quart);
+}
+
+/* Tactile press feedback — the one micro-interaction every button in the app
+   was missing. transform only (never layout properties), so it's cheap and
+   never causes reflow. */
+ion-button:not([disabled]):active {
+  transform: scale(0.97);
+}
+
+ion-item[button]:not(.item-disabled) {
+  transition: background-color 0.15s var(--ease-out-quart);
 }
 
 ion-button[color='primary'] {
@@ -295,9 +350,50 @@ ion-spinner {
   100% { background-position:  200% center; }
 }
 
+/* One skeleton row shape, reused everywhere a list is loading (item search,
+   customer search, order history) — title bone + subtitle bone, matching the
+   two-line ion-item layout those lists actually render once loaded. */
+.skel-row {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--app-border);
+}
+
+.skel-row .skel-bone:first-child {
+  width: 55%;
+  height: 15px;
+}
+
+.skel-row .skel-bone:last-child {
+  width: 35%;
+  height: 12px;
+}
+
 @keyframes fade-slide-up {
   from { opacity: 0; transform: translateY(12px); }
   to   { opacity: 1; transform: translateY(0);    }
+}
+
+/* Applied once per page/section on first mount — a single settle-in beat,
+   not choreography. Product register: motion conveys state, it doesn't
+   perform (see PRODUCT.md's "Speed over decoration" principle). */
+.animate-in {
+  animation: fade-slide-up 0.35s var(--ease-out-quart) both;
+}
+
+/* Shared crossfade for loading → loaded / empty → populated / form → success
+   state swaps. mode="out-in" on the <Transition> avoids the two states
+   overlapping mid-animation when their heights differ. */
+.view-fade-enter-active,
+.view-fade-leave-active {
+  transition: opacity 0.2s var(--ease-out-quart);
+}
+
+.view-fade-enter-from,
+.view-fade-leave-to {
+  opacity: 0;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -340,16 +436,20 @@ ion-spinner {
   padding: 16px 16px 6px;
 }
 
+/* Persistent offline notice (App.vue) — duration: 0, dismissed only by the
+   user or by reconnecting. Distinct from ordinary transient toasts. */
 .offline-toast {
-  --background: #12203a;
+  --background: var(--app-dark);
   --color: #ffffff;
   --border-radius: 12px;
   --box-shadow: 0 4px 24px rgba(0, 0, 0, 0.45);
   --min-width: 280px;
-  --max-width: 420px;
+  --max-width: 480px;
+  --button-color: var(--app-gold-light);
 }
 
 .offline-toast::part(container) {
   border: 1px solid rgba(255, 255, 255, 0.1);
-  border-top: 3px solid #ffc409;
+  border-top: 3px solid var(--app-gold-light);
 }
+

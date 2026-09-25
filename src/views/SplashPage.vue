@@ -17,12 +17,21 @@ import { onMounted } from 'vue';
 import { IonPage, IonContent, IonSpinner } from '@ionic/vue';
 import { useRouter } from 'vue-router';
 import { useAuthStore } from '@/stores/auth.store';
+import { prefetchInitialItems } from '@/services/item-prefetch.service';
 
 const router = useRouter();
 const authStore = useAuthStore();
 const year = new Date().getFullYear();
 
 onMounted(() => {
+  // Splash is the only point where a returning user's company is already known
+  // (restored from localStorage) before they've touched anything — the one safe
+  // moment to warm up the item list ahead of the Add Items modal. Fire-and-forget:
+  // this must never delay the redirect below.
+  if (authStore.isAuthenticated) {
+    prefetchInitialItems();
+  }
+
   setTimeout(() => {
     router.replace(authStore.isAuthenticated ? '/app/home' : '/login');
   }, 500);

@@ -4,56 +4,65 @@
       <ion-toolbar>
         <ion-title>SBIC Consignment</ion-title>
         <ion-buttons slot="end">
-          <ion-button @click="handleLogout">
-            <ion-icon :icon="logOutOutline" />
+          <ion-button @click="openProfile">
+            <ion-icon :icon="personCircleOutline" />
           </ion-button>
         </ion-buttons>
       </ion-toolbar>
     </ion-header>
-    <ion-content :fullscreen="true">
-      <div class="hero">
-        <p class="hero-eyebrow">Welcome back</p>
-        <h1 class="hero-name">{{ authStore.user?.displayName ?? 'there' }}</h1>
-        <p class="hero-date">{{ todayLabel }}</p>
-      </div>
+    <ion-content :fullscreen="true" class="wide-content">
+      <!-- Mobile/tablet: natural single-column stack, unchanged. Desktop
+           (≥1024px): the two divs below become a sticky left column (identity
+           + primary action) next to a right column (drafts) — see <style>. -->
+      <div class="home-layout animate-in">
+        <div class="home-left">
+          <div class="hero">
+            <p class="hero-eyebrow">Welcome back</p>
+            <h1 class="hero-name">{{ authStore.user?.displayName ?? 'there' }}</h1>
+            <p class="hero-date">{{ todayLabel }}</p>
+          </div>
 
-      <div class="ion-padding-horizontal">
-        <ion-button expand="block" size="large" @click="startNewSession">
-          <ion-icon :icon="addCircleOutline" slot="start" />
-          Start New Session
-        </ion-button>
-      </div>
-
-      <template v-if="sessionStore.hasDrafts">
-        <p class="section-label">Open Drafts</p>
-        <ion-list class="drafts-list" lines="full">
-          <ion-item-sliding v-for="draft in sessionStore.drafts" :key="draft.id">
-            <ion-item button @click="resumeDraft(draft)">
-              <div class="draft-badge" slot="start">
-                <ion-icon :icon="documentTextOutline" />
-              </div>
-              <ion-label>
-                <h2>{{ draft.customer?.displayName ?? 'No customer selected' }}</h2>
-                <p>
-                  {{ draft.lines.length }} item(s) · updated {{ formatDate(draft.updatedAt) }}
-                  <span v-if="draftHasExpiringSoon(draft)" class="expiry-badge">Expiring soon</span>
-                </p>
-              </ion-label>
-              <ion-icon :icon="chevronForwardOutline" slot="end" color="medium" />
-            </ion-item>
-            <ion-item-options side="end">
-              <ion-item-option color="danger" @click="deleteDraft(draft.id)">
-                <ion-icon :icon="trashOutline" slot="icon-only" />
-              </ion-item-option>
-            </ion-item-options>
-          </ion-item-sliding>
-        </ion-list>
-      </template>
-      <div v-else class="empty-state">
-        <div class="empty-icon-wrap">
-          <ion-icon :icon="documentTextOutline" class="empty-icon" />
+          <div class="ion-padding-horizontal start-btn-wrap">
+            <ion-button expand="block" size="large" @click="startNewSession">
+              <ion-icon :icon="addCircleOutline" slot="start" />
+              Start New Session
+            </ion-button>
+          </div>
         </div>
-        <p>No open drafts. Start a new session to record a sale.</p>
+
+        <div class="home-right">
+          <template v-if="sessionStore.hasDrafts">
+            <p class="section-label">Open Drafts</p>
+            <ion-list class="drafts-list" lines="full">
+              <ion-item-sliding v-for="draft in sessionStore.drafts" :key="draft.id">
+                <ion-item button @click="resumeDraft(draft)">
+                  <div class="draft-badge" slot="start">
+                    <ion-icon :icon="documentTextOutline" />
+                  </div>
+                  <ion-label>
+                    <h2>{{ draft.customer?.displayName ?? 'No customer selected' }}</h2>
+                    <p>
+                      {{ draft.lines.length }} item(s) · updated {{ formatDate(draft.updatedAt) }}
+                      <span v-if="draftHasExpiringSoon(draft)" class="expiry-badge">Expiring soon</span>
+                    </p>
+                  </ion-label>
+                  <ion-icon :icon="chevronForwardOutline" slot="end" color="medium" />
+                </ion-item>
+                <ion-item-options side="end">
+                  <ion-item-option color="danger" @click="deleteDraft(draft.id)">
+                    <ion-icon :icon="trashOutline" slot="icon-only" />
+                  </ion-item-option>
+                </ion-item-options>
+              </ion-item-sliding>
+            </ion-list>
+          </template>
+          <div v-else class="empty-state">
+            <div class="empty-icon-wrap">
+              <ion-icon :icon="documentTextOutline" class="empty-icon" />
+            </div>
+            <p>No open drafts. Start a new session to record a sale.</p>
+          </div>
+        </div>
       </div>
     </ion-content>
   </ion-page>
@@ -64,12 +73,14 @@ import { computed } from 'vue';
 import {
   IonPage, IonHeader, IonToolbar, IonTitle, IonButtons, IonButton, IonIcon, IonContent,
   IonList, IonItem, IonItemSliding, IonItemOptions, IonItemOption, IonLabel, alertController,
+  modalController,
 } from '@ionic/vue';
-import { addCircleOutline, chevronForwardOutline, trashOutline, documentTextOutline, logOutOutline } from 'ionicons/icons';
+import { addCircleOutline, chevronForwardOutline, trashOutline, documentTextOutline, personCircleOutline } from 'ionicons/icons';
 import { useRouter } from 'vue-router';
 import { useAuthStore } from '@/stores/auth.store';
 import { useSessionStore } from '@/stores/session.store';
 import { formatDate, isExpiringSoon } from '@/utils/format';
+import ProfileModal from '@/components/ProfileModal.vue';
 import type { ScanSession } from '@/types';
 
 const router = useRouter();
@@ -107,27 +118,55 @@ async function deleteDraft(id: string): Promise<void> {
   await alert.present();
 }
 
-async function handleLogout(): Promise<void> {
-  const alert = await alertController.create({
-    header: 'Sign Out',
-    message: 'Are you sure you want to sign out?',
-    buttons: [
-      { text: 'Cancel', role: 'cancel' },
-      {
-        text: 'Sign Out',
-        role: 'destructive',
-        handler: () => {
-          authStore.logout();
-          router.replace('/login');
-        },
-      },
-    ],
-  });
-  await alert.present();
+async function openProfile(): Promise<void> {
+  const modal = await modalController.create({ component: ProfileModal });
+  await modal.present();
 }
 </script>
 
 <style scoped>
+/* Desktop (≥1024px): identity + primary action become a sticky left column
+   beside the drafts list, instead of a long stacked scroll. Mobile/tablet
+   below this breakpoint is untouched — .home-layout stays a plain block. */
+@media (min-width: 1024px) {
+  .home-layout {
+    display: grid;
+    grid-template-columns: minmax(320px, 400px) 1fr;
+    gap: 40px;
+    padding: 32px 24px 0;
+    align-items: start;
+  }
+
+  .home-left {
+    position: sticky;
+    top: 24px;
+  }
+
+  .hero {
+    padding: 0 0 8px;
+  }
+
+  .start-btn-wrap {
+    padding-left: 0;
+    padding-right: 0;
+  }
+
+  .section-label {
+    padding-left: 0;
+    padding-right: 0;
+  }
+
+  .drafts-list {
+    margin: 0;
+  }
+
+  .empty-state {
+    align-items: flex-start;
+    text-align: left;
+    padding: 8px 0;
+  }
+}
+
 .hero {
   padding: 24px 16px 8px;
 }

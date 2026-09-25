@@ -8,6 +8,7 @@ import type {
   Item,
   ItemLot,
   ItemUnitOfMeasure,
+  OrderHistoryRecord,
   Page,
 } from '@/types';
 
@@ -131,5 +132,20 @@ export const ApiService = {
   async submitSalesOrder(payload: FoodSalesOrderPayload): Promise<FoodSalesOrderResult> {
     const res = await apiClient.post('/food/sales-orders', payload);
     return res.data as FoodSalesOrderResult;
+  },
+
+  /** Records one submission attempt (success or failure) to the food app's
+   *  own Firestore history collection. Called fire-and-forget from SubmitPage
+   *  — a history-write failure must never block or fail the actual order
+   *  confirmation the user is looking at. */
+  async recordOrderHistory(record: OrderHistoryRecord): Promise<void> {
+    await apiClient.post('/food/order-history', record);
+  },
+
+  async getOrderHistory(opts: { username: string; limit?: number; offset?: number }): Promise<Page<OrderHistoryRecord>> {
+    const res = await apiClient.get('/food/order-history', {
+      params: { username: opts.username, limit: opts.limit ?? 50, offset: opts.offset ?? 0 },
+    });
+    return toPage<OrderHistoryRecord>(res.data);
   },
 };

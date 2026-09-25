@@ -4,6 +4,7 @@ import { loadBcrypt } from '@/utils/bcrypt';
 import type { Company, Contact } from '@/types';
 import { ApiService, setApiCompany } from '@/services/api.service';
 import { DraftService } from '@/services/draft.service';
+import { clearItemPrefetch } from '@/services/item-prefetch.service';
 
 function isBcryptHash(value: string): boolean {
   return /^\$2[abyA-Z]\$\d{2}\$/.test(value);
@@ -114,12 +115,39 @@ export const useAuthStore = defineStore('auth', () => {
     pendingSetupContact.value = null;
   }
 
+  /** Editable profile fields only — never number/id. Throws on failure so the
+   *  Profile screen can show the real error, unlike the silent bcrypt-upgrade
+   *  writes above. */
+  async function updateProfile(patch: {
+    displayName?: string;
+    email?: string;
+    phoneNumber?: string;
+    username?: string;
+  }): Promise<void> {
+    if (!user.value) return;
+    await ApiService.updateContact(user.value.id, patch);
+    user.value = { ...user.value, ...patch };
+    DraftService.setAuth({ user: user.value });
+  }
+
+  /** Same bcrypt hashing as login's legacy-password upgrade and first-time
+   *  setup — the one encryption scheme this app ever writes to passwordHash. */
+  async function changePassword(newPassword: string): Promise<void> {
+    if (!user.value) return;
+    const bcrypt = await loadBcrypt();
+    const hash = await bcrypt.hash(newPassword, 10);
+    await ApiService.updateContact(user.value.id, { passwordHash: hash });
+    user.value = { ...user.value, passwordHash: hash };
+    DraftService.setAuth({ user: user.value });
+  }
+
   function logout(): void {
     company.value = null;
     user.value = null;
     setApiCompany(null);
     DraftService.clearAuth();
     DraftService.clearCompanyCode();
+    clearItemPrefetch();
   }
 
   function clearError(): void {
@@ -138,6 +166,8 @@ export const useAuthStore = defineStore('auth', () => {
     login,
     completePasswordSetup,
     clearPasswordSetup,
+    updateProfile,
+    changePassword,
     logout,
     clearError,
   };

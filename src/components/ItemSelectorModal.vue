@@ -22,42 +22,46 @@
     <ion-content>
       <!-- ── List / search mode ── -->
       <template v-if="!selectedItem">
-        <div v-if="loadingItems" class="state-block">
-          <ion-spinner name="crescent" />
-          <p>Searching items…</p>
-        </div>
-        <div v-else-if="itemsError" class="state-block state-block--error">
-          <p>{{ itemsError }}</p>
-          <ion-button size="small" fill="outline" @click="fetchItems">Retry</ion-button>
-        </div>
-        <div v-else-if="!items.length" class="state-block">
-          <ion-icon :icon="searchOutline" class="state-icon" />
-          <p>{{ searchTerm ? 'No items match your search.' : 'Start typing to search items.' }}</p>
-        </div>
-        <template v-else>
-          <ion-list lines="full">
-            <ion-item v-for="it in items" :key="it.id" button @click="pickItem(it)">
-              <ion-label>
-                <h2>{{ it.description || it.number }}</h2>
-                <p>#{{ it.number }} · {{ it.description || '—' }}</p>
-              </ion-label>
-              <ion-icon :icon="chevronForwardOutline" slot="end" color="medium" />
-            </ion-item>
-          </ion-list>
-          <div class="pager">
-            <ion-button fill="clear" size="small" :disabled="offset === 0" @click="goPrevPage">
-              <ion-icon :icon="chevronBackOutline" slot="start" /> Prev
-            </ion-button>
-            <span class="pager-label">{{ pagerLabel }}</span>
-            <ion-button fill="clear" size="small" :disabled="!hasNextPage" @click="goNextPage">
-              Next <ion-icon :icon="chevronForwardOutline" slot="end" />
-            </ion-button>
+        <Transition name="view-fade" mode="out-in">
+          <div v-if="loadingItems" key="loading" class="skel-list">
+            <div v-for="n in 6" :key="n" class="skel-row">
+              <div class="skel-bone" />
+              <div class="skel-bone" />
+            </div>
           </div>
-        </template>
+          <div v-else-if="itemsError" key="error" class="state-block state-block--error">
+            <p>{{ itemsError }}</p>
+            <ion-button size="small" fill="outline" @click="fetchItems">Retry</ion-button>
+          </div>
+          <div v-else-if="!items.length" key="empty" class="state-block">
+            <ion-icon :icon="searchOutline" class="state-icon" />
+            <p>{{ searchTerm ? 'No items match your search.' : 'Start typing to search items.' }}</p>
+          </div>
+          <div v-else key="results" class="items-results">
+            <ion-list lines="full">
+              <ion-item v-for="it in items" :key="it.id" button @click="pickItem(it)">
+                <ion-label>
+                  <h2>{{ it.description || it.number }}</h2>
+                  <p>#{{ it.number }} · {{ it.description || '—' }}</p>
+                </ion-label>
+                <ion-icon :icon="chevronForwardOutline" slot="end" color="medium" />
+              </ion-item>
+            </ion-list>
+            <div class="pager">
+              <ion-button fill="clear" size="small" :disabled="offset === 0" @click="goPrevPage">
+                <ion-icon :icon="chevronBackOutline" slot="start" /> Prev
+              </ion-button>
+              <span class="pager-label">{{ pagerLabel }}</span>
+              <ion-button fill="clear" size="small" :disabled="!hasNextPage" @click="goNextPage">
+                Next <ion-icon :icon="chevronForwardOutline" slot="end" />
+              </ion-button>
+            </div>
+          </div>
+        </Transition>
       </template>
 
       <!-- ── Item detail / add mode ── -->
-      <div v-else class="detail">
+      <div v-else class="detail animate-in">
         <ion-card>
           <ion-card-header>
             <ion-card-subtitle>Item Number</ion-card-subtitle>
@@ -68,64 +72,66 @@
           </ion-card-content>
         </ion-card>
 
-        <div v-if="loadingDetail" class="state-block">
-          <ion-spinner name="crescent" />
-          <p>Loading availability…</p>
-        </div>
-        <template v-else>
-          <ion-item lines="none" class="detail-field">
-            <ion-label position="stacked">Quantity</ion-label>
-            <div class="qty-stepper">
-              <ion-button color="primary" fill="outline" size="small" @click="adjustQty(-1)" :disabled="quantity <= 1">
-                <ion-icon :icon="removeOutline" slot="icon-only" />
-              </ion-button>
-              <ion-input
-                v-model.number="quantity"
-                type="number"
-                class="qty-input"
-                min="1"
-                :max="availableQuantity || undefined"
-                @ion-blur="clampQty"
-              />
-              <ion-button color="primary" fill="outline" size="small" @click="adjustQty(1)" :disabled="quantity >= availableQuantity">
-                <ion-icon :icon="addOutline" slot="icon-only" />
-              </ion-button>
-            </div>
-            <p class="detail-hint" :class="{ 'detail-hint--low': isLowStock }">
-              {{ availableQuantity }} available{{ oldestLot?.lotNo ? ` (lot ${oldestLot.lotNo})` : '' }}
+        <Transition name="view-fade" mode="out-in">
+          <div v-if="loadingDetail" key="loading" class="state-block">
+            <ion-spinner name="crescent" />
+            <p>Loading availability…</p>
+          </div>
+          <div v-else key="form">
+            <ion-item lines="none" class="detail-field">
+              <ion-label position="stacked">Quantity</ion-label>
+              <div class="qty-stepper">
+                <ion-button color="primary" fill="outline" size="small" @click="adjustQty(-1)" :disabled="quantity <= 1">
+                  <ion-icon :icon="removeOutline" slot="icon-only" />
+                </ion-button>
+                <ion-input
+                  v-model.number="quantity"
+                  type="number"
+                  class="qty-input"
+                  min="1"
+                  :max="availableQuantity || undefined"
+                  @ion-blur="clampQty"
+                />
+                <ion-button color="primary" fill="outline" size="small" @click="adjustQty(1)" :disabled="quantity >= availableQuantity">
+                  <ion-icon :icon="addOutline" slot="icon-only" />
+                </ion-button>
+              </div>
+              <p class="detail-hint" :class="{ 'detail-hint--low': isLowStock }">
+                {{ availableQuantity }} available{{ oldestLot?.lotNo ? ` (lot ${oldestLot.lotNo})` : '' }}
+              </p>
+            </ion-item>
+
+            <ion-item lines="none" class="detail-field">
+              <ion-label position="stacked">Unit of Measure</ion-label>
+              <ion-select v-model="unitOfMeasureCode" interface="action-sheet" placeholder="Select UOM">
+                <ion-select-option v-for="u in uomOptions" :key="u.code" :value="u.code">
+                  {{ u.code }}{{ u.description ? ` — ${u.description}` : '' }}
+                </ion-select-option>
+              </ion-select>
+            </ion-item>
+
+            <ion-item lines="none" class="detail-field">
+              <ion-label position="stacked">Expiry Date</ion-label>
+              <p class="expiry-value">
+                {{ formatDate(oldestLot?.expirationDate) }}
+                <span v-if="isExpiringSoon(oldestLot?.expirationDate)" class="expiry-badge">Expiring soon</span>
+              </p>
+            </ion-item>
+
+            <p v-if="availableQuantity === 0" class="detail-warning">
+              No available stock found for this item in Business Central.
             </p>
-          </ion-item>
 
-          <ion-item lines="none" class="detail-field">
-            <ion-label position="stacked">Unit of Measure</ion-label>
-            <ion-select v-model="unitOfMeasureCode" interface="action-sheet" placeholder="Select UOM">
-              <ion-select-option v-for="u in uomOptions" :key="u.code" :value="u.code">
-                {{ u.code }}{{ u.description ? ` — ${u.description}` : '' }}
-              </ion-select-option>
-            </ion-select>
-          </ion-item>
-
-          <ion-item lines="none" class="detail-field">
-            <ion-label position="stacked">Expiry Date</ion-label>
-            <p class="expiry-value">
-              {{ formatDate(oldestLot?.expirationDate) }}
-              <span v-if="isExpiringSoon(oldestLot?.expirationDate)" class="expiry-badge">Expiring soon</span>
-            </p>
-          </ion-item>
-
-          <p v-if="availableQuantity === 0" class="detail-warning">
-            No available stock found for this item in Business Central.
-          </p>
-
-          <ion-button
-            expand="block"
-            class="add-btn"
-            :disabled="!canAdd"
-            @click="confirmAdd"
-          >
-            Add to Order
-          </ion-button>
-        </template>
+            <ion-button
+              expand="block"
+              class="add-btn"
+              :disabled="!canAdd"
+              @click="confirmAdd"
+            >
+              Add to Order
+            </ion-button>
+          </div>
+        </Transition>
       </div>
     </ion-content>
   </ion-page>
@@ -142,6 +148,7 @@ import {
   closeOutline, chevronBackOutline, chevronForwardOutline, searchOutline, removeOutline, addOutline,
 } from 'ionicons/icons';
 import { ApiService } from '@/services/api.service';
+import { takePrefetchedItems } from '@/services/item-prefetch.service';
 import { formatDate, isExpiringSoon } from '@/utils/format';
 import type { Item, ItemLot, ItemUnitOfMeasure } from '@/types';
 
@@ -154,16 +161,13 @@ const LOTS_FETCH_LIMIT = 100;
 // zero (which is already a hard-stop, shown separately as a danger message).
 const LOW_STOCK_THRESHOLD = 10;
 
-const emit = defineEmits<{
-  added: [{
-    item: Item;
-    quantity: number;
-    unitOfMeasureCode: string;
-    expirationDate?: string;
-    lotNo?: string;
-    availableQuantity: number;
-  }];
-}>();
+// Data goes back to the caller via modalController.dismiss(data, role) +
+// the caller's `await modal.onDidDismiss()` — NOT via emit(). Ionic Vue's
+// modalController mounts this component with `h(component, componentProps)`
+// and no listener wiring for its emits, so a Vue `emit()` call here has no
+// parent listener and never surfaces as anything the caller can observe
+// (confirmed against @ionic/vue's actual VueDelegate/attachViewToDom source —
+// this is not a framework detail worth re-deriving by trial and error).
 
 // ── Search / list state ──
 const searchTerm = ref('');
@@ -214,7 +218,18 @@ function goPrevPage(): void {
   fetchItems();
 }
 
-fetchItems();
+// If Splash already warmed the first, unfiltered page (see item-prefetch.service),
+// show it immediately instead of waiting on a network round trip. Any other page —
+// a search, page 2, or a prefetch older than its freshness window — always goes
+// through the normal live fetch above; this only ever short-circuits the exact
+// same first request the modal would have made anyway.
+const prefetchedInitial = takePrefetchedItems();
+if (prefetchedInitial) {
+  items.value = prefetchedInitial.value;
+  total.value = prefetchedInitial.total;
+} else {
+  fetchItems();
+}
 
 // ── Detail / add mode state ──
 const selectedItem = ref<Item | null>(null);
@@ -264,15 +279,14 @@ watch(availableQuantity, () => clampQty());
 
 function confirmAdd(): void {
   if (!canAdd.value || !selectedItem.value) return;
-  emit('added', {
+  modalController.dismiss({
     item: selectedItem.value,
     quantity: quantity.value,
     unitOfMeasureCode: unitOfMeasureCode.value,
     expirationDate: oldestLot.value?.expirationDate,
     lotNo: oldestLot.value?.lotNo,
     availableQuantity: availableQuantity.value,
-  });
-  modalController.dismiss();
+  }, 'added');
 }
 
 function handleClose(): void {

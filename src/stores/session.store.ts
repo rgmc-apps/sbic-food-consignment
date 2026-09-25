@@ -3,12 +3,7 @@ import { ref, computed } from 'vue';
 import type { Contact, Customer, OrderLine, ScanSession } from '@/types';
 import { DraftService } from '@/services/draft.service';
 import { todayISO } from '@/utils/format';
-
-function generateId(): string {
-  return typeof crypto !== 'undefined' && crypto.randomUUID
-    ? crypto.randomUUID()
-    : Math.random().toString(36).substring(2) + Date.now().toString(36);
-}
+import { generateId } from '@/utils/id';
 
 function buildSession(user: Contact, companyCode?: string): ScanSession {
   return {

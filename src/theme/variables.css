@@ -95,6 +95,20 @@
   --app-tab-selected: #d4a72c;
   --app-tab-unselected: #7c869a;
 
+  /* Login screen field surface — dark-on-dark input chrome */
+  --app-login-field-bg: #1a2c4c;
+
+  /* Expiring-soon signal (FEFO) — the one semantic accent beyond
+     interactive blue. Reserved for expiry proximity, never decorative. */
+  --app-expiry-warn-bg: #faf0d6;
+  --app-expiry-warn-text: #a9840f;
+  --app-expiry-warn-border: #eeda9e;
+
+  /* Low-availability signal — shares the expiry-warn hue family since
+     both mean "act on this soon", kept distinct from --ion-color-danger
+     which is reserved for hard failures (zero stock, submit errors). */
+  --app-low-stock-text: #a9840f;
+
   /* Shadow system */
   --app-shadow-xs: 0 1px 4px rgba(18, 32, 58, 0.08);
   --app-shadow:    0 2px 12px rgba(36, 97, 168, 0.10), 0 1px 4px rgba(0,0,0,0.06);
@@ -298,6 +312,24 @@ ion-spinner {
 .text-gold { color: var(--app-gold-dark); }
 .text-muted { color: var(--app-text-muted); font-size: 13px; }
 .divider { height: 1px; background: var(--app-border); margin: 8px 0; }
+
+/* The one semantic accent beyond interactive blue: FEFO expiry proximity.
+   Used identically everywhere expiry appears (Scan lines, Add Items detail,
+   Submit review) so the color always means the same thing. */
+.expiry-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--app-expiry-warn-bg);
+  color: var(--app-expiry-warn-text);
+  font-size: var(--text-2xs);
+  font-weight: 700;
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+  vertical-align: middle;
+}
 
 .section-label {
   font-size: var(--text-xs);

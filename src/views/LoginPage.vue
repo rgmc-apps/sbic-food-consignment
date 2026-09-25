@@ -210,7 +210,7 @@ async function handleSetPassword(): Promise<void> {
 }
 
 .login-field {
-  --background: #1a2c4c;
+  --background: var(--app-login-field-bg);
   --color: #ffffff;
   border-radius: var(--app-radius);
   margin-bottom: 12px;

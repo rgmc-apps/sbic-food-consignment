@@ -41,7 +41,10 @@
             <ion-label>
               <h2>{{ line.description || line.itemNumber }}</h2>
               <p>#{{ line.itemNumber }} · {{ line.quantity }} {{ line.unitOfMeasureCode }}</p>
-              <p v-if="line.expirationDate">Expiry: {{ formatDate(line.expirationDate) }}</p>
+              <p v-if="line.expirationDate">
+                Expiry: {{ formatDate(line.expirationDate) }}
+                <span v-if="isExpiringSoon(line.expirationDate)" class="expiry-badge">Expiring soon</span>
+              </p>
             </ion-label>
           </ion-item>
         </ion-list>
@@ -83,7 +86,7 @@ import { checkmarkCircleOutline } from 'ionicons/icons';
 import { useRouter } from 'vue-router';
 import { useSessionStore } from '@/stores/session.store';
 import { ApiService, ApiError } from '@/services/api.service';
-import { formatDate } from '@/utils/format';
+import { formatDate, isExpiringSoon } from '@/utils/format';
 import type { FoodSalesOrderResult } from '@/types';
 
 const router = useRouter();
@@ -193,7 +196,7 @@ function finishAndGoHome(): void {
 .confirm-doc-no {
   font-size: var(--text-2xl);
   font-weight: 700;
-  color: var(--app-fg);
+  color: var(--app-blue);
   margin: 0;
 }
 

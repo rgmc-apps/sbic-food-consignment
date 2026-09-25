@@ -29,9 +29,15 @@
         <ion-list class="drafts-list" lines="full">
           <ion-item-sliding v-for="draft in sessionStore.drafts" :key="draft.id">
             <ion-item button @click="resumeDraft(draft)">
+              <div class="draft-badge" slot="start">
+                <ion-icon :icon="documentTextOutline" />
+              </div>
               <ion-label>
                 <h2>{{ draft.customer?.displayName ?? 'No customer selected' }}</h2>
-                <p>{{ draft.lines.length }} item(s) · updated {{ formatDate(draft.updatedAt) }}</p>
+                <p>
+                  {{ draft.lines.length }} item(s) · updated {{ formatDate(draft.updatedAt) }}
+                  <span v-if="draftHasExpiringSoon(draft)" class="expiry-badge">Expiring soon</span>
+                </p>
               </ion-label>
               <ion-icon :icon="chevronForwardOutline" slot="end" color="medium" />
             </ion-item>
@@ -44,7 +50,9 @@
         </ion-list>
       </template>
       <div v-else class="empty-state">
-        <ion-icon :icon="documentTextOutline" class="empty-icon" />
+        <div class="empty-icon-wrap">
+          <ion-icon :icon="documentTextOutline" class="empty-icon" />
+        </div>
         <p>No open drafts. Start a new session to record a sale.</p>
       </div>
     </ion-content>
@@ -61,7 +69,7 @@ import { addCircleOutline, chevronForwardOutline, trashOutline, documentTextOutl
 import { useRouter } from 'vue-router';
 import { useAuthStore } from '@/stores/auth.store';
 import { useSessionStore } from '@/stores/session.store';
-import { formatDate } from '@/utils/format';
+import { formatDate, isExpiringSoon } from '@/utils/format';
 import type { ScanSession } from '@/types';
 
 const router = useRouter();
@@ -81,6 +89,10 @@ function startNewSession(): void {
 function resumeDraft(draft: ScanSession): void {
   sessionStore.resumeDraft(draft);
   router.push('/app/scan');
+}
+
+function draftHasExpiringSoon(draft: ScanSession): boolean {
+  return draft.lines.some((l) => isExpiringSoon(l.expirationDate));
 }
 
 async function deleteDraft(id: string): Promise<void> {
@@ -121,8 +133,11 @@ async function handleLogout(): Promise<void> {
 }
 
 .hero-eyebrow {
-  color: var(--app-text-muted);
-  font-size: var(--text-sm);
+  color: var(--app-gold-dark);
+  font-size: var(--text-xs);
+  font-weight: 700;
+  letter-spacing: var(--tracking-wider);
+  text-transform: uppercase;
   margin: 0;
 }
 
@@ -145,6 +160,19 @@ async function handleLogout(): Promise<void> {
   overflow: hidden;
 }
 
+.draft-badge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--app-blue-pale);
+  color: var(--app-blue);
+  font-size: 18px;
+  margin-inline-end: 12px;
+}
+
 .empty-state {
   display: flex;
   flex-direction: column;
@@ -155,8 +183,19 @@ async function handleLogout(): Promise<void> {
   text-align: center;
 }
 
+.empty-icon-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: var(--app-blue-pale);
+  margin-bottom: 4px;
+}
+
 .empty-icon {
-  font-size: 40px;
-  color: var(--app-border);
+  font-size: 30px;
+  color: var(--app-blue);
 }
 </style>

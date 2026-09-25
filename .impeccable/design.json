@@ -1,0 +1,171 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-09-25T00:00:00.000Z",
+  "title": "Design System: SBIC Consignment Webapp - Food And Beverages",
+  "extensions": {
+    "colorMeta": {
+      "deep-harbor-blue": {
+        "role": "primary",
+        "displayName": "Deep Harbor Blue",
+        "canonical": "#2461A8",
+        "tonalRamp": ["#0E1E33", "#123159", "#17417A", "#1D519C", "#2461A8", "#3970B3", "#6E97C7", "#B9CCE2"]
+      },
+      "storage-navy": {
+        "role": "secondary",
+        "displayName": "Storage Navy",
+        "canonical": "#12203A",
+        "tonalRamp": ["#080D16", "#0D1526", "#12203A", "#1A2C4C", "#233A61", "#3A527D", "#6C82A0", "#B4C0D1"]
+      },
+      "fefo-gold": {
+        "role": "tertiary",
+        "displayName": "FEFO Gold",
+        "canonical": "#D4A72C",
+        "tonalRamp": ["#4A3A0D", "#7A600F", "#A9840F", "#C4991F", "#D4A72C", "#D9B041", "#E7C878", "#FAF0D6"]
+      },
+      "surface": {
+        "role": "neutral",
+        "displayName": "Surface White",
+        "canonical": "#FFFFFF",
+        "tonalRamp": ["#12203A", "#3A4658", "#6B7686", "#9BA5B2", "#CBD3DC", "#E4E9EF", "#F4F7FB", "#FFFFFF"]
+      },
+      "border": {
+        "role": "neutral",
+        "displayName": "Hairline Border",
+        "canonical": "#DBE4F0",
+        "tonalRamp": ["#12203A", "#3E4E68", "#6B7C99", "#98A9C2", "#C3D0E2", "#DBE4F0", "#EAF0F7", "#F7FAFD"]
+      },
+      "text-muted": {
+        "role": "neutral",
+        "displayName": "Muted Text",
+        "canonical": "#6B7686",
+        "tonalRamp": ["#12203A", "#2A3547", "#414D5E", "#596577", "#6B7686", "#8991A0", "#AAB1BC", "#D0D4DA"]
+      },
+      "success": {
+        "role": "semantic",
+        "displayName": "Submission Success Green",
+        "canonical": "#2DD36F"
+      },
+      "danger": {
+        "role": "semantic",
+        "displayName": "Hard Failure Red",
+        "canonical": "#EB445A"
+      }
+    },
+    "typographyMeta": {
+      "display": { "displayName": "Display", "purpose": "Home screen welcome name, splash/login wordmark. At most once per screen." },
+      "headline": { "displayName": "Headline", "purpose": "The confirmed Business Central document number on Submit's success screen." },
+      "title": { "displayName": "Title", "purpose": "Primary list-item text: customer names, item descriptions, draft summaries." },
+      "body": { "displayName": "Body", "purpose": "Metadata lines, form values, secondary list text." },
+      "label": { "displayName": "Label", "purpose": "Field labels and section labels, uppercase, muted or FEFO-gold-dark." }
+    },
+    "shadows": [
+      { "name": "ambient", "value": "0 2px 12px rgba(36, 97, 168, 0.10), 0 1px 4px rgba(0,0,0,0.06)", "purpose": "Default card lift, faintly blue-tinted rather than neutral gray." },
+      { "name": "elevated", "value": "0 4px 20px rgba(18, 32, 58, 0.12), 0 1px 6px rgba(0, 0, 0, 0.06)", "purpose": "Reserved for modals/sheets needing more separation than a card; unused by shipped components today." }
+    ],
+    "motion": [
+      { "name": "ease-out-quart", "value": "cubic-bezier(0.25, 1, 0.5, 1)", "purpose": "Default easing for any state transition." },
+      { "name": "ease-out-expo", "value": "cubic-bezier(0.16, 1, 0.3, 1)", "purpose": "Faster-settling variant for snappier micro-interactions." }
+    ],
+    "breakpoints": [
+      { "name": "narrow", "value": "599px" },
+      { "name": "content-max", "value": "720px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Every primary action: Sign In, Start New Session, Add Item, Add to Order, Submit to Business Central.",
+      "html": "<button class=\"ds-btn-primary\">Submit to Business Central</button>",
+      "css": ".ds-btn-primary { background: #2461A8; color: #FFFFFF; font-weight: 600; letter-spacing: 0.3px; padding: 12px 20px; border: none; border-radius: 8px; transition: background 0.2s var(--ds-ease, cubic-bezier(0.25,1,0.5,1)); } .ds-btn-primary:hover { background: #3970B3; } .ds-btn-primary:active { background: #123159; } .ds-btn-primary:focus-visible { outline: 2px solid #2461A8; outline-offset: 2px; } .ds-btn-primary:disabled { background: #CBD3DC; color: #8991A0; }"
+    },
+    {
+      "name": "Outline Stepper Button",
+      "kind": "button",
+      "refersTo": "button-outline",
+      "description": "Quantity +/- controls in the Add Items modal — blue outline, no fill, inherits interactive color without competing with the primary action.",
+      "html": "<button class=\"ds-btn-outline\" aria-label=\"Increase quantity\">+</button>",
+      "css": ".ds-btn-outline { background: transparent; color: #2461A8; border: 1px solid #2461A8; border-radius: 8px; width: 36px; height: 36px; font-weight: 600; transition: background 0.2s; } .ds-btn-outline:hover { background: #E4EDF7; } .ds-btn-outline:disabled { color: #CBD3DC; border-color: #DBE4F0; }"
+    },
+    {
+      "name": "Wayfinding Badge",
+      "kind": "custom",
+      "refersTo": "badge-wayfinding",
+      "description": "Leading circular icon badge before the Customer and Posting Date fields on Scan, and each draft row on Home. Purely navigational, never status.",
+      "html": "<div class=\"ds-badge-wayfind\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><circle cx=\"12\" cy=\"8\" r=\"4\"/><path d=\"M4 21c0-4.4 3.6-8 8-8s8 3.6 8 8\"/></svg></div>",
+      "css": ".ds-badge-wayfind { display: flex; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: 50%; background: #E4EDF7; color: #2461A8; }"
+    },
+    {
+      "name": "Expiry Warning Chip",
+      "kind": "chip",
+      "refersTo": "chip-expiry-warn",
+      "description": "The signature component: appears identically wherever an expiry date is shown, meaning exactly one thing (within 14 days of expiry). Never used decoratively.",
+      "html": "<span class=\"ds-chip-expiry\">Expiring soon</span>",
+      "css": ".ds-chip-expiry { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 999px; background: #FAF0D6; color: #A9840F; font-size: 10px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; vertical-align: middle; }"
+    },
+    {
+      "name": "Order Line Card List Item",
+      "kind": "custom",
+      "refersTo": "list-item-order-line",
+      "description": "The core content row across Scan and Submit: item name, quantity/UOM, and expiry with its warning chip when applicable.",
+      "html": "<div class=\"ds-line-item\"><h2 class=\"ds-line-title\">Canned Tomatoes 400g</h2><p class=\"ds-line-meta\">#FB-1002 · 24 CASE</p><p class=\"ds-line-expiry\">Expiry: Oct 3, 2026 <span class=\"ds-chip-expiry\">Expiring soon</span></p></div>",
+      "css": ".ds-line-item { background: #FFFFFF; padding: 12px 16px; border-bottom: 1px solid #DBE4F0; } .ds-line-title { font-size: 16px; font-weight: 600; color: #12203A; margin: 0 0 2px; } .ds-line-meta, .ds-line-expiry { font-size: 14px; color: #6B7686; margin: 0; }"
+    },
+    {
+      "name": "Card",
+      "kind": "card",
+      "refersTo": "card",
+      "description": "Customer summary card on Submit, and any grouped-content surface.",
+      "html": "<div class=\"ds-card\"><p class=\"ds-card-subtitle\">Customer</p><h3 class=\"ds-card-title\">Riverside Grocers</h3></div>",
+      "css": ".ds-card { background: #FFFFFF; border: 1px solid #DBE4F0; border-radius: 16px; box-shadow: 0 2px 12px rgba(36, 97, 168, 0.10), 0 1px 4px rgba(0,0,0,0.06); padding: 16px; } .ds-card-subtitle { font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; color: #6B7686; margin: 0 0 4px; } .ds-card-title { font-size: 16px; font-weight: 700; color: #12203A; margin: 0; }"
+    },
+    {
+      "name": "Input Field",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "Standard form field (Order Number, search bars) — flush inside its row, blue focus highlight.",
+      "html": "<label class=\"ds-field-label\">Order Number *</label><input class=\"ds-input\" placeholder=\"Enter the online order number\" />",
+      "css": ".ds-field-label { display: block; font-size: 11px; font-weight: 700; letter-spacing: 0.10em; text-transform: uppercase; color: #6B7686; margin-bottom: 4px; } .ds-input { width: 100%; border: none; border-bottom: 1px solid #DBE4F0; background: transparent; padding: 8px 0; font-size: 14px; color: #12203A; } .ds-input:focus { outline: none; border-bottom-color: #2461A8; box-shadow: 0 1px 0 0 #2461A8; }"
+    },
+    {
+      "name": "Header Navigation",
+      "kind": "nav",
+      "refersTo": "nav-header",
+      "description": "Top toolbar — Storage Navy background, white title, FEFO Gold Light icons (brand-accent role, not a semantic signal here).",
+      "html": "<header class=\"ds-header\"><button class=\"ds-header-back\" aria-label=\"Back\">&#8592;</button><h1 class=\"ds-header-title\">Submit Order</h1></header>",
+      "css": ".ds-header { display: flex; align-items: center; background: #12203A; color: #FFFFFF; padding: 12px 16px; } .ds-header-back { background: none; border: none; color: #D9B041; font-size: 20px; } .ds-header-title { flex: 1; text-align: center; font-weight: 600; letter-spacing: 0.3px; margin: 0; font-size: 16px; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Consignment Optimizer",
+    "overview": "Every screen exists to optimize one loop: pick a customer, confirm what's actually available right now, catch what's expiring, submit, done. Nothing here is decorative — color, shape, and hierarchy all point at making that loop faster and less error-prone for someone standing in a storage room, phone or tablet in one hand, stock in the other. This is a tool, not a showcase; competence reads as calm, not flashy. Before this pass, color lived only in the app's chrome (header, tab bar) — every content screen was effectively grayscale. That was a missed opportunity, not a stylistic choice: the interface had nothing to say about hierarchy, wayfinding, or the one piece of information that genuinely matters in food & beverage consignment — how soon something expires. This system fixes that with two disciplined moves: a single interactive blue (Deep Harbor Blue) for anything the user can act on or needs as a key value, and a single reserved gold (FEFO Gold) for exactly one meaning — expiry proximity — never used decoratively.",
+    "keyCharacteristics": [
+      "One interactive/key-value accent (blue), one strictly-semantic accent (gold), nothing else competing for attention",
+      "Flat-to-quiet elevation — shadows exist but are barely-there, never a design statement",
+      "Generous touch targets and high-contrast text, because this is used one-handed under inconsistent warehouse lighting",
+      "Color always means the same thing wherever it appears — never one-off decoration"
+    ],
+    "rules": [
+      { "name": "The One Meaning Rule", "body": "Every color means exactly one thing, everywhere it appears. Gold is expiry/low-stock, full stop. Blue is \"act on this or read this key value,\" full stop.", "section": "colors" },
+      { "name": "The No-Reskin Rule", "body": "This app does not borrow the garments app's gold-primary/dark-secondary identity. Blue leads here; gold is a narrow, functional signal, not the second half of a matching color pair.", "section": "colors" },
+      { "name": "The Single-Voice Rule", "body": "One font family, always. Hierarchy is entirely scale + weight + color, never a second typeface pretending to be editorial contrast.", "section": "typography" },
+      { "name": "The Whisper Rule", "body": "If a shadow is visible enough to describe out loud, it's too strong. Elevation here is a structural cue, not a visual flourish.", "section": "elevation" }
+    ],
+    "dos": [
+      "Do use Deep Harbor Blue (#2461A8) for every interactive element and every key-value moment.",
+      "Do reserve FEFO Gold (#D4A72C / #A9840F dark) exclusively for expiry-proximity and low-stock signals.",
+      "Do keep every neutral tinted (cool blue-gray), never pure #fff or #000 for large surfaces.",
+      "Do keep shadows barely-visible (rgba(...,0.06-0.12)) — elevation is structural, not decorative.",
+      "Do size touch targets generously for one-handed, tablet/phone use in variable lighting."
+    ],
+    "donts": [
+      "Don't reskin the garments app's gold-primary/dark-secondary identity.",
+      "Don't build a generic admin-dashboard look.",
+      "Don't add consumer-app gloss: no bounce/elastic motion, no rounded-everything playfulness.",
+      "Don't use border-left/border-right greater than 1px as a colored status stripe on any card, list item, or callout.",
+      "Don't use gradient text anywhere.",
+      "Don't introduce a second decorative accent color."
+    ]
+  }
+}

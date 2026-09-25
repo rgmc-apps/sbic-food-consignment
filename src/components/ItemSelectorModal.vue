@@ -76,7 +76,7 @@
           <ion-item lines="none" class="detail-field">
             <ion-label position="stacked">Quantity</ion-label>
             <div class="qty-stepper">
-              <ion-button fill="outline" size="small" @click="adjustQty(-1)" :disabled="quantity <= 1">
+              <ion-button color="primary" fill="outline" size="small" @click="adjustQty(-1)" :disabled="quantity <= 1">
                 <ion-icon :icon="removeOutline" slot="icon-only" />
               </ion-button>
               <ion-input
@@ -87,11 +87,11 @@
                 :max="availableQuantity || undefined"
                 @ion-blur="clampQty"
               />
-              <ion-button fill="outline" size="small" @click="adjustQty(1)" :disabled="quantity >= availableQuantity">
+              <ion-button color="primary" fill="outline" size="small" @click="adjustQty(1)" :disabled="quantity >= availableQuantity">
                 <ion-icon :icon="addOutline" slot="icon-only" />
               </ion-button>
             </div>
-            <p class="detail-hint">
+            <p class="detail-hint" :class="{ 'detail-hint--low': isLowStock }">
               {{ availableQuantity }} available{{ oldestLot?.lotNo ? ` (lot ${oldestLot.lotNo})` : '' }}
             </p>
           </ion-item>
@@ -107,7 +107,10 @@
 
           <ion-item lines="none" class="detail-field">
             <ion-label position="stacked">Expiry Date</ion-label>
-            <p class="expiry-value">{{ formatDate(oldestLot?.expirationDate) }}</p>
+            <p class="expiry-value">
+              {{ formatDate(oldestLot?.expirationDate) }}
+              <span v-if="isExpiringSoon(oldestLot?.expirationDate)" class="expiry-badge">Expiring soon</span>
+            </p>
           </ion-item>
 
           <p v-if="availableQuantity === 0" class="detail-warning">
@@ -139,7 +142,7 @@ import {
   closeOutline, chevronBackOutline, chevronForwardOutline, searchOutline, removeOutline, addOutline,
 } from 'ionicons/icons';
 import { ApiService } from '@/services/api.service';
-import { formatDate } from '@/utils/format';
+import { formatDate, isExpiringSoon } from '@/utils/format';
 import type { Item, ItemLot, ItemUnitOfMeasure } from '@/types';
 
 const PAGE_SIZE = 25;
@@ -147,6 +150,9 @@ const PAGE_SIZE = 25;
 // so one generously-sized page is enough to compute total availability without
 // needing a dedicated aggregate endpoint.
 const LOTS_FETCH_LIMIT = 100;
+// Below this, flag the picker as "getting low" (amber) rather than waiting for
+// zero (which is already a hard-stop, shown separately as a danger message).
+const LOW_STOCK_THRESHOLD = 10;
 
 const emit = defineEmits<{
   added: [{
@@ -220,6 +226,7 @@ const unitOfMeasureCode = ref('');
 
 const availableQuantity = computed(() => lots.value.reduce((sum, l) => sum + (l.remainingQuantity || 0), 0));
 const oldestLot = computed(() => lots.value[0] ?? null);
+const isLowStock = computed(() => availableQuantity.value > 0 && availableQuantity.value <= LOW_STOCK_THRESHOLD);
 const canAdd = computed(() =>
   !!selectedItem.value && !!unitOfMeasureCode.value && quantity.value >= 1 && quantity.value <= availableQuantity.value,
 );
@@ -337,6 +344,11 @@ function handleClose(): void {
   font-size: var(--text-xs);
   color: var(--app-text-muted);
   margin: 6px 0 0;
+}
+
+.detail-hint--low {
+  color: var(--app-low-stock-text);
+  font-weight: 700;
 }
 
 .expiry-value {

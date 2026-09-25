@@ -20,14 +20,20 @@
       <template v-else>
         <ion-list class="header-fields" lines="full">
           <ion-item button @click="openCustomerPicker">
+            <div class="field-badge" slot="start">
+              <ion-icon :icon="personOutline" />
+            </div>
             <ion-label>
               <p class="field-label">Customer</p>
-              <h2>{{ session.customer?.displayName ?? 'Select customer' }}</h2>
+              <h2 :class="{ 'field-placeholder': !session.customer }">{{ session.customer?.displayName ?? 'Select customer' }}</h2>
             </ion-label>
             <ion-icon :icon="chevronForwardOutline" slot="end" color="medium" />
           </ion-item>
 
           <ion-item>
+            <div class="field-badge" slot="start">
+              <ion-icon :icon="calendarOutline" />
+            </div>
             <ion-label position="stacked">Posting Date</ion-label>
             <ion-input type="date" :value="session.postingDate" @ion-change="onPostingDateChange" />
           </ion-item>
@@ -52,7 +58,10 @@
               <ion-label>
                 <h2>{{ line.description || line.itemNumber }}</h2>
                 <p>#{{ line.itemNumber }} · {{ line.quantity }} {{ line.unitOfMeasureCode }}</p>
-                <p v-if="line.expirationDate">Expiry: {{ formatDate(line.expirationDate) }}</p>
+                <p v-if="line.expirationDate">
+                  Expiry: {{ formatDate(line.expirationDate) }}
+                  <span v-if="isExpiringSoon(line.expirationDate)" class="expiry-badge">Expiring soon</span>
+                </p>
               </ion-label>
             </ion-item>
             <ion-item-options side="end">
@@ -70,7 +79,7 @@
     <ion-footer v-if="session && sessionStore.hasLines">
       <ion-toolbar class="submit-bar">
         <div class="submit-bar-inner">
-          <span>{{ sessionStore.lines.length }} item(s) · {{ sessionStore.lineCount }} total qty</span>
+          <span><strong class="text-blue">{{ sessionStore.lines.length }}</strong> item(s) · <strong class="text-blue">{{ sessionStore.lineCount }}</strong> total qty</span>
           <ion-button @click="goToSubmit">
             Review &amp; Submit
             <ion-icon :icon="chevronForwardOutline" slot="end" />
@@ -88,10 +97,10 @@ import {
   IonList, IonItem, IonLabel, IonInput, IonItemSliding, IonItemOptions, IonItemOption,
   IonFooter, modalController,
 } from '@ionic/vue';
-import { addCircleOutline, chevronForwardOutline, trashOutline, cubeOutline, homeOutline } from 'ionicons/icons';
+import { addCircleOutline, chevronForwardOutline, trashOutline, cubeOutline, homeOutline, personOutline, calendarOutline } from 'ionicons/icons';
 import { onBeforeRouteLeave, useRouter } from 'vue-router';
 import { useSessionStore } from '@/stores/session.store';
-import { formatDate } from '@/utils/format';
+import { formatDate, isExpiringSoon } from '@/utils/format';
 import ItemSelectorModal from '@/components/ItemSelectorModal.vue';
 import CustomerSelectorModal from '@/components/CustomerSelectorModal.vue';
 import type { Customer, Item } from '@/types';
@@ -159,6 +168,24 @@ onBeforeRouteLeave(() => {
   color: var(--app-text-muted);
   text-transform: uppercase;
   letter-spacing: var(--tracking-wide);
+}
+
+.field-placeholder {
+  color: var(--app-text-muted);
+  font-weight: 400;
+}
+
+.field-badge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--app-blue-pale);
+  color: var(--app-blue);
+  font-size: 16px;
+  margin-inline-end: 12px;
 }
 
 .add-item-row {

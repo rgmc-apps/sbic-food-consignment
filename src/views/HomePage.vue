@@ -73,19 +73,19 @@ import { computed } from 'vue';
 import {
   IonPage, IonHeader, IonToolbar, IonTitle, IonButtons, IonButton, IonIcon, IonContent,
   IonList, IonItem, IonItemSliding, IonItemOptions, IonItemOption, IonLabel, alertController,
-  modalController,
 } from '@ionic/vue';
 import { addCircleOutline, chevronForwardOutline, trashOutline, documentTextOutline, personCircleOutline } from 'ionicons/icons';
 import { useRouter } from 'vue-router';
 import { useAuthStore } from '@/stores/auth.store';
 import { useSessionStore } from '@/stores/session.store';
 import { formatDate, isExpiringSoon } from '@/utils/format';
-import ProfileModal from '@/components/ProfileModal.vue';
+import { useProfileModal } from '@/composables/useProfileModal';
 import type { ScanSession } from '@/types';
 
 const router = useRouter();
 const authStore = useAuthStore();
 const sessionStore = useSessionStore();
+const { openProfile } = useProfileModal();
 
 const todayLabel = computed(() =>
   new Date().toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }),
@@ -117,11 +117,6 @@ async function deleteDraft(id: string): Promise<void> {
   });
   await alert.present();
 }
-
-async function openProfile(): Promise<void> {
-  const modal = await modalController.create({ component: ProfileModal });
-  await modal.present();
-}
 </script>
 
 <style scoped>
@@ -129,6 +124,13 @@ async function openProfile(): Promise<void> {
    beside the drafts list, instead of a long stacked scroll. Mobile/tablet
    below this breakpoint is untouched — .home-layout stays a plain block. */
 @media (min-width: 1024px) {
+  /* TabsPage's unified desktop bar already carries the brand + profile
+     action — this page's own header would just be a second, redundant bar
+     stacked underneath it. */
+  ion-header {
+    display: none;
+  }
+
   .home-layout {
     display: grid;
     grid-template-columns: minmax(320px, 400px) 1fr;

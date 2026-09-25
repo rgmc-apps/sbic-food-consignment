@@ -175,6 +175,14 @@ onBeforeRouteLeave(() => {
    left column beside the order-lines review, instead of stacked scrolling.
    Mobile/tablet below this breakpoint keeps the original stacked flow. */
 @media (min-width: 1024px) {
+  /* TabsPage's unified desktop bar already carries the brand + tabs — this
+     page's own header (and its mobile-only "save & go home" shortcut, which
+     the route-leave guard already covers via autosave regardless of how the
+     user navigates away) would just be a redundant second bar. */
+  ion-header {
+    display: none;
+  }
+
   .scan-layout {
     display: grid;
     grid-template-columns: 360px 1fr;

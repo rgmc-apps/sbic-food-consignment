@@ -228,23 +228,27 @@ ion-content::part(scroll) {
   }
 }
 
-/* ── Desktop tab strip: same ion-tab-bar as mobile, repositioned to slot="top"
-   and restyled as a left-aligned horizontal strip (TabsPage.vue decides the
-   slot/layout per viewport; this only handles the visual shape). ── */
+/* ── Desktop nav bar: the SAME ion-tab-bar as mobile, repositioned to
+   slot="top" and restyled as one full-width bar carrying brand + tabs +
+   profile action together (TabsPage.vue supplies that content; this handles
+   the shape). Sized like a real desktop app bar — 64px, comfortable click
+   targets — not a shrunken copy of the mobile bottom strip. ── */
 ion-tab-bar.tab-bar-desktop {
   --background: var(--app-header-bg);
   border-top: none;
   border-bottom: 1px solid var(--app-blue-dark);
   justify-content: flex-start;
-  height: 48px;
-  padding-left: max(16px, calc((100% - 1120px) / 2));
+  height: 64px;
+  padding-inline: max(24px, calc((100% - 1120px) / 2));
+  gap: 4px;
 }
 
 ion-tab-bar.tab-bar-desktop ion-tab-button {
   flex: 0 0 auto;
   min-width: 0;
-  padding: 0 18px;
-  font-size: var(--text-sm);
+  height: 100%;
+  padding: 0 22px;
+  font-size: var(--text-base);
   border-bottom: 2px solid transparent;
 }
 
@@ -253,13 +257,13 @@ ion-tab-bar.tab-bar-desktop ion-tab-button.tab-selected {
 }
 
 ion-tab-bar.tab-bar-desktop ion-icon {
-  font-size: 16px;
-  margin-inline-end: 6px;
+  font-size: 19px;
+  margin-inline-end: 8px;
 }
 
 ion-tab-bar.tab-bar-desktop ion-badge {
   position: static;
-  margin-inline-start: 6px;
+  margin-inline-start: 8px;
 }
 
 ion-card {

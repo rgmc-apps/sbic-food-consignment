@@ -139,6 +139,14 @@ onMounted(fetchHistory);
 </script>
 
 <style scoped>
+/* TabsPage's unified desktop bar already carries the brand + tabs — this
+   page's own header would just be a redundant second bar underneath it. */
+@media (min-width: 1024px) {
+  ion-header {
+    display: none;
+  }
+}
+
 .state-block {
   display: flex;
   flex-direction: column;

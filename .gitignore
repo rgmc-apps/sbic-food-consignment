@@ -1,0 +1,27 @@
+# Dependencies
+node_modules/
+
+# Build output — Docker runs npm run build; dist/ not needed in git
+dist/
+
+# Vite local env overrides (never commit) — matches rgmc-consignment-webapp's
+# convention: .env and .env.production ARE committed (no secrets in them, just
+# a staging URL), only *.local overrides are ignored.
+.env.local
+.env.*.local
+
+# Logs
+*.log
+npm-debug.log*
+
+# Editor / OS
+.DS_Store
+Thumbs.db
+desktop.ini
+*.suo
+*.user
+*.local
+
+# Claude Code session files
+.claude/
+handoff.md

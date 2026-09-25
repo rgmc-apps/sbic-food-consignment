@@ -1,0 +1,27 @@
+{
+  "name": "sbic-consignment-food",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "vite",
+    "build": "vue-tsc && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@ionic/vue": "^8.3.0",
+    "@ionic/vue-router": "^8.3.0",
+    "axios": "^1.7.2",
+    "bcryptjs": "^3.0.3",
+    "ionicons": "^7.4.0",
+    "pinia": "^2.1.7",
+    "vue": "^3.4.21",
+    "vue-router": "^4.3.3"
+  },
+  "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
+    "@vitejs/plugin-vue": "^5.0.4",
+    "typescript": "^5.4.5",
+    "vite": "^5.2.8",
+    "vue-tsc": "^2.0.11"
+  }
+}

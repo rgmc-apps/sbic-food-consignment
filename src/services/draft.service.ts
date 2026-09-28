@@ -1,10 +1,10 @@
 /**
  * Auth session, selected company, and draft-session autosave — this module
  * exists purely so that an in-progress, not-yet-submitted order isn't lost if
- * the network drops or the tab is closed mid-session. The one other
- * localStorage key in this app is the item catalog cache (see
- * item-catalog.service.ts) — a narrow, documented exception (PRODUCT.md)
- * for static item number/description only; customer data, price, quantity,
+ * the network drops or the tab is closed mid-session. The other localStorage
+ * keys in this app are the item and customer catalog caches (see
+ * item-catalog.service.ts / customer-catalog.service.ts) — narrow, documented
+ * exceptions (PRODUCT.md) for static reference fields only; price, quantity,
  * lot, and expiry are still never cached, no sync timestamps, no IndexedDB.
  */
 import type { Contact, ScanSession } from '@/types';

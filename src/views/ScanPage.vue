@@ -141,7 +141,8 @@ async function openItemSelector(): Promise<void> {
   const modal = await modalController.create({ component: ItemSelectorModal });
   await modal.present();
   const { data, role } = await modal.onDidDismiss<{
-    item: Item; quantity: number; unitOfMeasureCode: string; expirationDate?: string; lotNo?: string; availableQuantity: number;
+    item: Item; quantity: number; unitOfMeasureCode: string; expirationDate?: string; lotNo?: string;
+    availableQuantity: number; qtyPerUnitOfMeasure?: number;
   }>();
   if (role === 'added' && data) {
     sessionStore.addLine({
@@ -152,6 +153,7 @@ async function openItemSelector(): Promise<void> {
       expirationDate: data.expirationDate,
       lotNo: data.lotNo,
       availableQuantity: data.availableQuantity,
+      qtyPerUnitOfMeasure: data.qtyPerUnitOfMeasure,
     });
   }
 }

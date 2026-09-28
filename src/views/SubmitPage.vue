@@ -101,6 +101,10 @@
         <p class="confirm-doc">Business Central Document No.</p>
         <p class="confirm-doc-no">{{ result.documentNumber }}</p>
         <p class="confirm-order-no">Order No.: {{ result.externalDocumentNo }}</p>
+        <div v-if="result.trackingWarnings?.length" class="tracking-warning">
+          <p class="tracking-warning-title">Lot tracking not recorded</p>
+          <p v-for="(w, i) in result.trackingWarnings" :key="i">{{ w }}</p>
+        </div>
         <ion-button expand="block" @click="finishAndGoHome">Done</ion-button>
       </div>
       </Transition>
@@ -354,6 +358,22 @@ function finishAndGoHome(): void {
   color: var(--app-text-muted);
   margin: 4px 0 24px;
   animation-delay: 0.18s;
+}
+
+.tracking-warning {
+  background: var(--app-surface-alt);
+  border-radius: var(--app-radius-sm);
+  padding: 10px 14px;
+  margin: 0 0 20px;
+  text-align: left;
+  font-size: var(--text-xs);
+  color: var(--app-text-muted);
+}
+
+.tracking-warning-title {
+  color: var(--app-low-stock-text);
+  font-weight: 700;
+  margin: 0 0 4px;
 }
 
 @keyframes confirm-icon-in {

@@ -30,7 +30,20 @@ export const useAuthStore = defineStore('auth', () => {
     }
     if (savedAuth?.user) {
       user.value = savedAuth.user;
+      _fetchPhoto(savedAuth.user.id);
     }
+  }
+
+  /** Fire-and-forget: fetches the contact's BC picture and merges it onto
+   *  `user` in memory only. Never persisted to localStorage (the saved auth
+   *  blob stays lean) and never blocks login/restore — a missing or failed
+   *  picture just leaves the initials fallback in place. */
+  function _fetchPhoto(contactId: string): void {
+    ApiService.getContactPicture(contactId).then((url) => {
+      if (user.value?.id === contactId) {
+        user.value = { ...user.value, pictureUrl: url };
+      }
+    });
   }
 
   /** Live lookup + client-side bcrypt/legacy-plaintext check — same mechanism
@@ -97,6 +110,7 @@ export const useAuthStore = defineStore('auth', () => {
     setApiCompany(selectedCompany.code);
     DraftService.setCompanyCode(selectedCompany.code);
     DraftService.setAuth({ user: contact });
+    _fetchPhoto(contact.id);
     return true;
   }
 

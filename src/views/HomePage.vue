@@ -4,8 +4,9 @@
       <ion-toolbar>
         <ion-title>SBIC Consignment</ion-title>
         <ion-buttons slot="end">
-          <ion-button @click="openProfile">
-            <ion-icon :icon="personCircleOutline" />
+          <ion-button class="header-avatar-btn" @click="openProfileMenu">
+            <img v-if="authStore.user?.pictureUrl" :src="authStore.user.pictureUrl" alt="" class="header-avatar-img" />
+            <ion-icon v-else :icon="personCircleOutline" />
           </ion-button>
         </ion-buttons>
       </ion-toolbar>
@@ -79,13 +80,13 @@ import { useRouter } from 'vue-router';
 import { useAuthStore } from '@/stores/auth.store';
 import { useSessionStore } from '@/stores/session.store';
 import { formatDate, isExpiringSoon } from '@/utils/format';
-import { useProfileModal } from '@/composables/useProfileModal';
+import { useProfile } from '@/composables/useProfile';
 import type { ScanSession } from '@/types';
 
 const router = useRouter();
 const authStore = useAuthStore();
 const sessionStore = useSessionStore();
-const { openProfile } = useProfileModal();
+const { openProfileMenu } = useProfile();
 
 const todayLabel = computed(() =>
   new Date().toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }),
@@ -120,6 +121,13 @@ async function deleteDraft(id: string): Promise<void> {
 </script>
 
 <style scoped>
+.header-avatar-img {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
 /* Desktop (≥1024px): identity + primary action become a sticky left column
    beside the drafts list, instead of a long stacked scroll. Mobile/tablet
    below this breakpoint is untouched — .home-layout stays a plain block. */

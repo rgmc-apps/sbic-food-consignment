@@ -18,6 +18,10 @@ export interface Contact {
   phoneNumber?: string;
   username?: string;
   passwordHash?: string;
+  /** Data-URL fetched separately via ApiService.getContactPicture — not part
+   *  of the /food/contacts response itself. In-memory only, re-fetched on
+   *  each login rather than persisted to localStorage. */
+  pictureUrl?: string | null;
 }
 
 /** BC Customer — only chain=true customers are ever returned by /food/customers. */

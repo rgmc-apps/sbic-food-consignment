@@ -13,7 +13,10 @@
 
     <ion-content class="ion-padding">
       <div class="profile-identity animate-in">
-        <div class="avatar-circle">{{ initials }}</div>
+        <div class="avatar-circle">
+          <img v-if="authStore.user?.pictureUrl" :src="authStore.user.pictureUrl" alt="" class="avatar-img" />
+          <span v-else>{{ initials }}</span>
+        </div>
         <h2 class="identity-name">{{ authStore.user?.displayName }}</h2>
         <p class="identity-number">#{{ authStore.user?.number ?? '—' }}</p>
       </div>
@@ -82,6 +85,8 @@
       <ion-button expand="block" fill="clear" color="danger" @click="handleSignOut">
         Sign Out
       </ion-button>
+
+      <p class="build-label">Build {{ buildLabel }}</p>
     </ion-content>
   </ion-page>
 </template>
@@ -90,29 +95,25 @@
 import { ref, computed } from 'vue';
 import {
   IonPage, IonHeader, IonToolbar, IonTitle, IonButtons, IonButton, IonIcon, IonContent,
-  IonItem, IonLabel, IonInput, IonSpinner, modalController, alertController,
+  IonItem, IonLabel, IonInput, IonSpinner, modalController,
 } from '@ionic/vue';
 import { closeOutline } from 'ionicons/icons';
-import { useRouter } from 'vue-router';
 import { useAuthStore } from '@/stores/auth.store';
+import { useProfile } from '@/composables/useProfile';
+import { getInitials } from '@/utils/initials';
 import { ApiError } from '@/services/api.service';
 
-const router = useRouter();
 const authStore = useAuthStore();
+const { signOut } = useProfile();
 
 const displayName = ref(authStore.user?.displayName ?? '');
 const email = ref(authStore.user?.email ?? '');
 const phoneNumber = ref(authStore.user?.phoneNumber ?? '');
 const username = ref(authStore.user?.username ?? '');
 
-const initials = computed(() => {
-  const name = authStore.user?.displayName?.trim();
-  if (!name) return '?';
-  const parts = name.split(/\s+/).filter(Boolean);
-  const first = parts[0]?.[0] ?? '';
-  const last = parts.length > 1 ? parts[parts.length - 1][0] : '';
-  return (first + last).toUpperCase();
-});
+const initials = computed(() => getInitials(authStore.user?.displayName));
+// Global const injected at build time by vite.config.ts (see env.d.ts).
+const buildLabel = __APP_BUILD__;
 
 // ── Profile fields ──
 const savingProfile = ref(false);
@@ -170,24 +171,8 @@ async function handleChangePassword(): Promise<void> {
   }
 }
 
-async function handleSignOut(): Promise<void> {
-  const alert = await alertController.create({
-    header: 'Sign Out',
-    message: 'Are you sure you want to sign out?',
-    buttons: [
-      { text: 'Cancel', role: 'cancel' },
-      {
-        text: 'Sign Out',
-        role: 'destructive',
-        handler: async () => {
-          authStore.logout();
-          await modalController.dismiss();
-          router.replace('/login');
-        },
-      },
-    ],
-  });
-  await alert.present();
+function handleSignOut(): void {
+  signOut(() => modalController.dismiss());
 }
 </script>
 
@@ -212,6 +197,13 @@ async function handleSignOut(): Promise<void> {
   font-size: var(--text-xl);
   font-weight: 700;
   margin-bottom: 10px;
+  overflow: hidden;
+}
+
+.avatar-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .identity-name {
@@ -255,5 +247,12 @@ async function handleSignOut(): Promise<void> {
   height: 1px;
   background: var(--app-border);
   margin: 24px 0;
+}
+
+.build-label {
+  font-size: var(--text-2xs);
+  color: var(--app-text-muted);
+  text-align: center;
+  margin: 16px 0 4px;
 }
 </style>

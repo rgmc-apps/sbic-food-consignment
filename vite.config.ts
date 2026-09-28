@@ -1,7 +1,29 @@
 import { defineConfig, loadEnv } from 'vite';
 import vue from '@vitejs/plugin-vue';
 import { fileURLToPath, URL } from 'node:url';
+import { execSync } from 'node:child_process';
 import { APP_VERSION } from './src/version';
+
+// Same mechanism as rgmc-consignment-webapp: short commit SHA (if this ever
+// becomes a git checkout — it isn't one yet, so this quietly returns null and
+// getBuildId() falls back to the timestamp alone) plus a build timestamp, so
+// every deploy gets a traceable "when was this actually built" stamp without
+// any commit-back workflow.
+function getGitSha(): string | null {
+  try {
+    return execSync('git rev-parse --short HEAD', { stdio: ['ignore', 'pipe', 'ignore'] })
+      .toString()
+      .trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+function getBuildId(): string {
+  const sha = getGitSha();
+  const timestamp = new Date().toISOString().slice(0, 16).replace('T', ' ') + ' UTC';
+  return sha ? `${sha} · ${timestamp}` : timestamp;
+}
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
@@ -11,6 +33,7 @@ export default defineConfig(({ mode }) => {
     plugins: [vue()],
     define: {
       __APP_VERSION__: JSON.stringify(APP_VERSION),
+      __APP_BUILD__: JSON.stringify(getBuildId()),
     },
     build: {
       rollupOptions: {

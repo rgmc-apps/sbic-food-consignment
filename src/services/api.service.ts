@@ -98,6 +98,25 @@ export const ApiService = {
     await apiClient.patch(`/food/contacts/${encodeURIComponent(id)}`, patch);
   },
 
+  /** Contact picture as a data URL, or null if the contact has none set.
+   *  Never throws — a missing/failed picture just falls back to initials. */
+  async getContactPicture(id: string): Promise<string | null> {
+    try {
+      const res = await apiClient.get(`/food/contacts/${encodeURIComponent(id)}/picture`, {
+        responseType: 'blob',
+      });
+      if (!res.data || res.data.size === 0) return null;
+      return new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = () => resolve(null);
+        reader.readAsDataURL(res.data);
+      });
+    } catch {
+      return null;
+    }
+  },
+
   /** Paginated, live customer search — chain=true is always enforced server-side. */
   async getCustomers(opts: { search?: string; limit?: number; offset?: number } = {}): Promise<Page<Customer>> {
     const res = await apiClient.get('/food/customers', {

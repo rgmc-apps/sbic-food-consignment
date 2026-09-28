@@ -9,3 +9,6 @@ interface ImportMeta {
 }
 
 declare const __APP_VERSION__: string;
+/** Build timestamp (+ commit SHA once this is a git checkout), stamped at
+ *  build time by vite.config.ts — shows when this deploy was actually built. */
+declare const __APP_BUILD__: string;

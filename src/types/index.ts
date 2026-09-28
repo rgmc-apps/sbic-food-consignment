@@ -126,6 +126,9 @@ export interface FoodSalesOrderPayload {
 export interface FoodSalesOrderResult {
   documentNumber: string;
   externalDocumentNo: string;
+  /** Non-fatal — present only when one or more lines' lot could not be
+   *  written as a BC Item Tracking Line. The order itself still succeeded. */
+  trackingWarnings?: string[];
 }
 
 /** Standard pagination envelope every /food/* list endpoint returns. */

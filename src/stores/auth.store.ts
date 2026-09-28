@@ -5,6 +5,7 @@ import type { Company, Contact } from '@/types';
 import { ApiService, setApiCompany } from '@/services/api.service';
 import { DraftService } from '@/services/draft.service';
 import { ItemCatalogService } from '@/services/item-catalog.service';
+import { CustomerCatalogService } from '@/services/customer-catalog.service';
 
 function isBcryptHash(value: string): boolean {
   return /^\$2[abyA-Z]\$\d{2}\$/.test(value);
@@ -34,6 +35,7 @@ export const useAuthStore = defineStore('auth', () => {
     }
     if (savedCode) {
       ItemCatalogService.preload(savedCode);
+      CustomerCatalogService.preload(savedCode);
     }
   }
 
@@ -115,6 +117,7 @@ export const useAuthStore = defineStore('auth', () => {
     DraftService.setAuth({ user: contact });
     _fetchPhoto(contact.id);
     ItemCatalogService.preload(selectedCompany.code);
+    CustomerCatalogService.preload(selectedCompany.code);
     return true;
   }
 
@@ -166,6 +169,7 @@ export const useAuthStore = defineStore('auth', () => {
     DraftService.clearAuth();
     DraftService.clearCompanyCode();
     ItemCatalogService.clear();
+    CustomerCatalogService.clear();
   }
 
   function clearError(): void {

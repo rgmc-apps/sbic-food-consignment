@@ -457,3 +457,11 @@ ion-spinner {
   border-top: 3px solid var(--app-gold-light);
 }
 
+/* Posting Date calendar popover (ScanPage) — explicit width. Ionic's default
+   popover auto-sizing under-measures a CSS Grid's intrinsic content width,
+   clipping the 7-column day grid and forcing a horizontal scrollbar; setting
+   --width directly sidesteps that auto-sizing algorithm entirely. */
+.date-picker-popover {
+  --width: 296px;
+}
+

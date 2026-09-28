@@ -65,8 +65,11 @@ import {
 } from '@ionic/vue';
 import { closeOutline, chevronBackOutline, chevronForwardOutline } from 'ionicons/icons';
 import { ApiService } from '@/services/api.service';
-import type { Customer } from '@/types';
+import { CustomerCatalogService } from '@/services/customer-catalog.service';
+import { useAuthStore } from '@/stores/auth.store';
+import type { Customer, Page } from '@/types';
 
+const authStore = useAuthStore();
 const PAGE_SIZE = 25;
 
 // Data goes back to the caller via modalController.dismiss(data, role) — see
@@ -89,13 +92,28 @@ const pagerLabel = computed(() => {
   return `${from}–${to} of ${total.value}`;
 });
 
+// Filters/paginates the cached (already chain=true) customer catalog
+// client-side — matches against the full dataset, not a per-field window
+// capped server-side, which is what caused short/common searches to miss
+// customers until the term narrowed enough to fit that window.
+function filterCatalog(catalog: Customer[], search: string, limit: number, off: number): Page<Customer> {
+  const term = search.trim().toLowerCase();
+  const filtered = term
+    ? catalog.filter((c) => c.displayName.toLowerCase().includes(term) || c.number.toLowerCase().includes(term))
+    : catalog;
+  return { value: filtered.slice(off, off + limit), total: filtered.length, limit, offset: off };
+}
+
 let token = 0;
 async function fetchCustomers(): Promise<void> {
   loading.value = true;
   error.value = null;
   const t = ++token;
   try {
-    const page = await ApiService.getCustomers({ search: searchTerm.value.trim(), limit: PAGE_SIZE, offset: offset.value });
+    const cached = CustomerCatalogService.getCustomers(authStore.company?.code ?? '');
+    const page = cached
+      ? filterCatalog(cached, searchTerm.value, PAGE_SIZE, offset.value)
+      : await ApiService.getCustomers({ search: searchTerm.value.trim(), limit: PAGE_SIZE, offset: offset.value });
     if (t !== token) return;
     customers.value = page.value;
     total.value = page.total;

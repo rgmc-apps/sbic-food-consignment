@@ -148,6 +148,8 @@ export interface OrderHistoryLine {
   description?: string;
   quantity: number;
   unitOfMeasureCode?: string;
+  lotNo?: string;
+  expirationDate?: string;
 }
 
 /** One order-submission attempt, written to the food app's own Firestore

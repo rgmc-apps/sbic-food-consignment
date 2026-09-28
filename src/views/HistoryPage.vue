@@ -51,7 +51,25 @@
                   <ion-item v-for="(line, i) in rec.lines" :key="i">
                     <ion-label>
                       <h3>{{ line.description || line.itemNumber }}</h3>
-                      <p>#{{ line.itemNumber }} · {{ line.quantity }} {{ line.unitOfMeasureCode }}</p>
+                      <p class="line-detail-row">
+                        <span class="line-detail-label">Item No.</span>
+                        <span>#{{ line.itemNumber }}</span>
+                      </p>
+                      <p class="line-detail-row">
+                        <span class="line-detail-label">Quantity</span>
+                        <span>{{ line.quantity }} {{ line.unitOfMeasureCode }}</span>
+                      </p>
+                      <p v-if="line.expirationDate" class="line-detail-row">
+                        <span class="line-detail-label">Expiry Date</span>
+                        <span>
+                          {{ formatDate(line.expirationDate) }}
+                          <span v-if="isExpiringSoon(line.expirationDate)" class="expiry-badge">Expiring soon</span>
+                        </span>
+                      </p>
+                      <p v-if="line.lotNo" class="line-detail-row">
+                        <span class="line-detail-label">Lot No.</span>
+                        <span>{{ line.lotNo }}</span>
+                      </p>
                     </ion-label>
                   </ion-item>
                 </ion-list>
@@ -85,7 +103,7 @@ import {
 } from 'ionicons/icons';
 import { useAuthStore } from '@/stores/auth.store';
 import { ApiService, ApiError } from '@/services/api.service';
-import { formatDate } from '@/utils/format';
+import { formatDate, isExpiringSoon } from '@/utils/format';
 import type { OrderHistoryRecord } from '@/types';
 
 const PAGE_SIZE = 25;
@@ -221,6 +239,20 @@ onMounted(fetchHistory);
 .lines-list {
   border-radius: var(--app-radius-sm);
   overflow: hidden;
+}
+
+.line-detail-row {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin: 2px 0 0;
+}
+
+.line-detail-label {
+  color: var(--app-text-muted);
+  font-size: var(--text-xs);
+  min-width: 78px;
+  flex-shrink: 0;
 }
 
 .pager {

@@ -35,12 +35,15 @@
               <ion-icon :icon="chevronForwardOutline" slot="end" color="medium" />
             </ion-item>
 
-            <ion-item>
+            <ion-item button @click="openDatePicker">
               <div class="field-badge" slot="start">
                 <ion-icon :icon="calendarOutline" />
               </div>
-              <ion-label position="stacked">Posting Date</ion-label>
-              <ion-input type="date" :value="session.postingDate" @ion-change="onPostingDateChange" />
+              <ion-label>
+                <p class="field-label">Posting Date</p>
+                <h2>{{ formatDate(session.postingDate) }}</h2>
+              </ion-label>
+              <ion-icon :icon="chevronForwardOutline" slot="end" color="medium" />
             </ion-item>
           </ion-list>
 
@@ -48,6 +51,16 @@
             <ion-button expand="block" :disabled="!session.customer" @click="openItemSelector">
               <ion-icon :icon="addCircleOutline" slot="start" />
               Add Item
+            </ion-button>
+            <ion-button
+              expand="block"
+              fill="outline"
+              class="scan-item-btn"
+              :disabled="!session.customer"
+              @click="openItemSelector(true)"
+            >
+              <ion-icon :icon="barcodeOutline" slot="start" />
+              Scan Barcode
             </ion-button>
             <p v-if="!session.customer" class="add-item-hint">Select a customer first.</p>
           </div>
@@ -100,24 +113,37 @@
 import { computed } from 'vue';
 import {
   IonPage, IonHeader, IonToolbar, IonTitle, IonButtons, IonButton, IonIcon, IonContent,
-  IonList, IonItem, IonLabel, IonInput, IonItemSliding, IonItemOptions, IonItemOption,
-  IonFooter, modalController,
+  IonList, IonItem, IonLabel, IonItemSliding, IonItemOptions, IonItemOption,
+  IonFooter, modalController, popoverController,
 } from '@ionic/vue';
-import { addCircleOutline, chevronForwardOutline, trashOutline, cubeOutline, homeOutline, personOutline, calendarOutline } from 'ionicons/icons';
+import { addCircleOutline, chevronForwardOutline, trashOutline, cubeOutline, homeOutline, personOutline, calendarOutline, barcodeOutline } from 'ionicons/icons';
 import { onBeforeRouteLeave, useRouter } from 'vue-router';
 import { useSessionStore } from '@/stores/session.store';
 import { formatDate, isExpiringSoon } from '@/utils/format';
 import ItemSelectorModal from '@/components/ItemSelectorModal.vue';
 import CustomerSelectorModal from '@/components/CustomerSelectorModal.vue';
+import DatePickerPopover from '@/components/DatePickerPopover.vue';
 import type { Customer, Item } from '@/types';
 
 const router = useRouter();
 const sessionStore = useSessionStore();
 const session = computed(() => sessionStore.currentSession);
 
-function onPostingDateChange(ev: CustomEvent): void {
-  const value = (ev.detail as { value?: string }).value;
-  if (value) sessionStore.setPostingDate(value.slice(0, 10));
+async function openDatePicker(ev: Event): Promise<void> {
+  if (!session.value) return;
+  const popover = await popoverController.create({
+    component: DatePickerPopover,
+    componentProps: { modelValue: session.value.postingDate },
+    event: ev,
+    side: 'bottom',
+    alignment: 'start',
+    cssClass: 'date-picker-popover',
+  });
+  await popover.present();
+  const { data, role } = await popover.onDidDismiss<string>();
+  if (role === 'picked' && data) {
+    sessionStore.setPostingDate(data);
+  }
 }
 
 // Data comes back via modalController.dismiss(data, role) inside each modal
@@ -137,8 +163,11 @@ async function openCustomerPicker(): Promise<void> {
   }
 }
 
-async function openItemSelector(): Promise<void> {
-  const modal = await modalController.create({ component: ItemSelectorModal });
+async function openItemSelector(startInScanner = false): Promise<void> {
+  const modal = await modalController.create({
+    component: ItemSelectorModal,
+    componentProps: { startInScanner },
+  });
   await modal.present();
   const { data, role } = await modal.onDidDismiss<{
     item: Item; quantity: number; unitOfMeasureCode: string; expirationDate?: string; lotNo?: string;
@@ -249,6 +278,14 @@ onBeforeRouteLeave(() => {
 
 .add-item-row {
   margin: 12px 0;
+}
+
+.scan-item-btn {
+  --border-width: 2px;
+  --border-color: var(--app-blue);
+  --color: var(--app-blue);
+  --background: transparent;
+  margin-top: 8px;
 }
 
 .add-item-hint {

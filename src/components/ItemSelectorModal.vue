@@ -2,14 +2,32 @@
   <ion-page>
     <ion-header>
       <ion-toolbar>
-        <ion-title>{{ selectedItem ? 'Add Item' : 'Select Item' }}</ion-title>
+        <ion-title>{{ selectedItem ? 'Add Item' : viewMode === 'scanner' ? 'Scan Barcode' : 'Select Item' }}</ion-title>
         <ion-buttons slot="start">
           <ion-button @click="handleClose">
             <ion-icon :icon="selectedItem ? chevronBackOutline : closeOutline" slot="icon-only" />
           </ion-button>
         </ion-buttons>
+        <ion-buttons v-if="!selectedItem" slot="end">
+          <!-- Prominent by design: a solid, high-contrast circular button (not
+               a bare toolbar icon) so scanning reads as a primary action, not
+               a hidden option. -->
+          <button
+            v-if="viewMode === 'list'"
+            type="button"
+            class="scan-toggle-btn"
+            :disabled="!cameraAvailable"
+            :title="cameraAvailable ? 'Scan a barcode' : 'Camera unavailable'"
+            @click="openScanner"
+          >
+            <ion-icon :icon="barcodeOutline" />
+          </button>
+          <ion-button v-else fill="clear" @click="closeScanner">
+            <ion-icon :icon="listOutline" slot="icon-only" />
+          </ion-button>
+        </ion-buttons>
       </ion-toolbar>
-      <ion-toolbar v-if="!selectedItem">
+      <ion-toolbar v-if="!selectedItem && viewMode === 'list'">
         <ion-searchbar
           v-model="searchTerm"
           placeholder="Search by item number, ID, or code"
@@ -21,7 +39,11 @@
 
     <ion-content>
       <!-- ── List / search mode ── -->
-      <template v-if="!selectedItem">
+      <template v-if="!selectedItem && viewMode === 'list'">
+        <div v-if="barcodeNotFound" class="barcode-miss">
+          <ion-icon :icon="alertCircleOutline" />
+          <span>No item found for barcode <strong>{{ lastScannedBarcode }}</strong>. Showing search results.</span>
+        </div>
         <Transition name="view-fade" mode="out-in">
           <div v-if="loadingItems" key="loading" class="skel-list">
             <div v-for="n in 6" :key="n" class="skel-row">
@@ -60,8 +82,78 @@
         </Transition>
       </template>
 
+      <!-- ── Scanner mode ── -->
+      <template v-else-if="!selectedItem && viewMode === 'scanner'">
+        <div class="scanner-wrap">
+          <video ref="videoEl" autoplay playsinline muted class="scanner-video" />
+
+          <div class="scanner-ui">
+            <div class="scanner-frame">
+              <div class="corner tl" />
+              <div class="corner tr" />
+              <div class="corner bl" />
+              <div class="corner br" />
+              <div v-if="scanStatus === 'scanning'" class="scan-line" />
+            </div>
+            <p class="scan-hint" :class="`scan-hint--${scanStatus}`">{{ scanHintText }}</p>
+          </div>
+
+          <!-- Single barcode confirmation -->
+          <div v-if="scanStatus === 'confirm'" class="single-confirm">
+            <div class="single-confirm-header">
+              <ion-icon :icon="checkmarkCircleOutline" class="single-confirm-icon" />
+              <p class="single-confirm-title">Barcode detected</p>
+            </div>
+            <p class="single-confirm-value">{{ confirmedBarcode }}</p>
+            <ion-button expand="block" color="primary" class="single-confirm-btn" @click="acceptBarcode">
+              Use This Barcode
+            </ion-button>
+            <button class="rescan-btn" @click="resumeScanning">
+              <ion-icon :icon="refreshOutline" />
+              Scan Again
+            </button>
+          </div>
+
+          <!-- Multi-barcode picker -->
+          <div v-if="scanStatus === 'multiple'" class="multi-picker">
+            <p class="multi-picker-title">Multiple barcodes detected</p>
+            <p class="multi-picker-sub">Code 128 listed first — tap one to use it:</p>
+            <button
+              v-for="(b, idx) in detectedBarcodes"
+              :key="idx"
+              class="multi-bc-btn"
+              :class="{ 'multi-bc-btn--priority': b.format === 'code_128' }"
+              @click="pickBarcode(b.rawValue)"
+            >
+              <span class="multi-bc-format">{{ formatLabel(b.format) }}</span>
+              <span class="multi-bc-value">{{ b.rawValue }}</span>
+            </button>
+            <button class="rescan-btn" @click="resumeScanning">
+              <ion-icon :icon="refreshOutline" />
+              Scan Again
+            </button>
+          </div>
+
+          <!-- Manual input fallback -->
+          <div class="manual-wrap">
+            <p class="manual-label">Or enter barcode manually:</p>
+            <div class="manual-row">
+              <ion-input
+                v-model="manualBarcode"
+                placeholder="Item number / barcode"
+                class="manual-input"
+                @keyup.enter="submitManual"
+              />
+              <ion-button size="default" @click="submitManual">
+                <ion-icon :icon="searchOutline" slot="icon-only" />
+              </ion-button>
+            </div>
+          </div>
+        </div>
+      </template>
+
       <!-- ── Item detail / add mode ── -->
-      <div v-else class="detail animate-in">
+      <div v-else-if="selectedItem" class="detail animate-in">
         <ion-card>
           <ion-card-header>
             <ion-card-subtitle>Item Number</ion-card-subtitle>
@@ -151,7 +243,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue';
+import { ref, computed, watch, onUnmounted } from 'vue';
 import {
   IonPage, IonHeader, IonToolbar, IonTitle, IonButtons, IonButton, IonIcon, IonSearchbar,
   IonContent, IonList, IonItem, IonLabel, IonSpinner, IonCard, IonCardHeader, IonCardSubtitle,
@@ -159,12 +251,15 @@ import {
 } from '@ionic/vue';
 import {
   closeOutline, chevronBackOutline, chevronForwardOutline, searchOutline, removeOutline, addOutline,
+  barcodeOutline, listOutline, checkmarkCircleOutline, refreshOutline, alertCircleOutline,
 } from 'ionicons/icons';
 import { ApiService } from '@/services/api.service';
 import { ItemCatalogService } from '@/services/item-catalog.service';
 import { useAuthStore } from '@/stores/auth.store';
 import { formatDate, isExpiringSoon } from '@/utils/format';
 import type { Item, ItemLot, ItemUnitOfMeasure, Page } from '@/types';
+
+const props = defineProps<{ startInScanner?: boolean }>();
 
 const authStore = useAuthStore();
 
@@ -253,6 +348,234 @@ function goPrevPage(): void {
 
 fetchItems();
 
+// ── Barcode scanner — ported from rgmc-consignment-webapp's ItemSelectorModal:
+// same BarcodeDetector-based auto-detect flow (a web-platform API, no native
+// plugin, so it works in this web-only PWA), same confirm/multi-barcode/manual-
+// entry behavior. Adapted for resolution: instead of matching against a props-
+// supplied offline item list, it checks the item catalog cache first, falling
+// back to a live /food/items search — mirroring how the rest of this modal
+// already resolves items, cache-first with a live fallback. ──
+type ViewMode = 'list' | 'scanner';
+type ScanStatus = 'starting' | 'scanning' | 'detected' | 'error' | 'multiple' | 'confirm';
+
+interface DetectedBarcode { rawValue: string; format: string; }
+
+const FORMAT_PRIORITY: Record<string, number> = {
+  code_128: 0, code_39: 1, ean_13: 2, ean_8: 3, upc_a: 4, upc_e: 5, qr_code: 6,
+};
+const FORMAT_LABELS: Record<string, string> = {
+  code_128: 'Code 128', code_39: 'Code 39', ean_13: 'EAN-13',
+  ean_8: 'EAN-8', upc_a: 'UPC-A', upc_e: 'UPC-E', qr_code: 'QR Code',
+};
+function formatLabel(fmt: string): string {
+  return FORMAT_LABELS[fmt] ?? fmt;
+}
+
+const viewMode = ref<ViewMode>('list');
+const videoEl = ref<HTMLVideoElement | null>(null);
+const videoStream = ref<MediaStream | null>(null);
+const scanStatus = ref<ScanStatus>('starting');
+const manualBarcode = ref('');
+const detectedBarcodes = ref<DetectedBarcode[]>([]);
+const confirmedBarcode = ref('');
+const barcodeNotFound = ref(false);
+const lastScannedBarcode = ref('');
+const cameraAvailable = ref('mediaDevices' in navigator && 'getUserMedia' in navigator.mediaDevices);
+let detectionInterval: ReturnType<typeof setInterval> | null = null;
+let audioCtx: AudioContext | null = null;
+
+const scanHintText = computed(() => {
+  switch (scanStatus.value) {
+    case 'starting': return 'Starting camera…';
+    case 'scanning': return 'Point camera at barcode';
+    case 'detected': return 'Barcode detected!';
+    case 'confirm':  return 'Barcode detected — confirm to use it';
+    case 'multiple': return 'Multiple barcodes found — select one below';
+    case 'error':    return 'Camera unavailable — use manual input';
+    default: return '';
+  }
+});
+
+async function openScanner(): Promise<void> {
+  viewMode.value = 'scanner';
+  barcodeNotFound.value = false;
+  manualBarcode.value = '';
+  scanStatus.value = 'starting';
+
+  // Unlock AudioContext while still in the tap gesture — required by iOS Safari.
+  try {
+    audioCtx = new AudioContext();
+    if (audioCtx.state === 'suspended') void audioCtx.resume();
+  } catch {
+    audioCtx = null;
+  }
+
+  await new Promise((r) => setTimeout(r, 80)); // let DOM render the video element
+
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 } },
+    });
+    videoStream.value = stream;
+    if (videoEl.value) {
+      videoEl.value.srcObject = stream;
+      await videoEl.value.play();
+    }
+    scanStatus.value = 'scanning';
+    if ('BarcodeDetector' in window) {
+      startAutoDetection();
+    }
+  } catch {
+    scanStatus.value = 'error';
+  }
+}
+
+function beepAndHaptic(): void {
+  navigator.vibrate?.(60);
+  if (!audioCtx) return;
+  try {
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.type = 'square';
+    osc.frequency.setValueAtTime(1800, audioCtx.currentTime);
+    gain.gain.setValueAtTime(0.25, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.08);
+    osc.start(audioCtx.currentTime);
+    osc.stop(audioCtx.currentTime + 0.08);
+  } catch {
+    // ignore — audio feedback is a nicety, never a requirement
+  }
+}
+
+function startAutoDetection(): void {
+  type RawDetector = { detect: (el: HTMLVideoElement) => Promise<DetectedBarcode[]> };
+  const detector = new (window as unknown as { BarcodeDetector: new (opts: object) => RawDetector }).BarcodeDetector({
+    formats: ['code_128', 'ean_13', 'ean_8', 'code_39', 'upc_a', 'upc_e', 'qr_code'],
+  });
+
+  detectionInterval = setInterval(async () => {
+    if (!videoEl.value || scanStatus.value === 'detected' || scanStatus.value === 'multiple' || scanStatus.value === 'confirm') return;
+    try {
+      const raw = await detector.detect(videoEl.value);
+      if (raw.length === 0) return;
+
+      beepAndHaptic();
+
+      if (raw.length === 1) {
+        stopDetectionOnly();
+        confirmedBarcode.value = raw[0].rawValue;
+        scanStatus.value = 'confirm';
+        return;
+      }
+
+      const sorted = [...raw].sort((a, b) => (FORMAT_PRIORITY[a.format] ?? 99) - (FORMAT_PRIORITY[b.format] ?? 99));
+      stopDetectionOnly();
+      detectedBarcodes.value = sorted;
+      scanStatus.value = 'multiple';
+    } catch {
+      // per-frame errors are normal while the video is still buffering
+    }
+  }, 250);
+}
+
+function stopDetectionOnly(): void {
+  if (detectionInterval) {
+    clearInterval(detectionInterval);
+    detectionInterval = null;
+  }
+}
+
+function acceptBarcode(): void {
+  const code = confirmedBarcode.value;
+  confirmedBarcode.value = '';
+  scanStatus.value = 'detected';
+  stopCamera();
+  setTimeout(() => resolveBarcode(code), 150);
+}
+
+function pickBarcode(code: string): void {
+  detectedBarcodes.value = [];
+  scanStatus.value = 'detected';
+  stopCamera();
+  setTimeout(() => resolveBarcode(code), 200);
+}
+
+function resumeScanning(): void {
+  detectedBarcodes.value = [];
+  confirmedBarcode.value = '';
+  if (!videoStream.value) {
+    void openScanner();
+    return;
+  }
+  scanStatus.value = 'scanning';
+  if ('BarcodeDetector' in window) startAutoDetection();
+}
+
+function closeScanner(): void {
+  stopCamera();
+  viewMode.value = 'list';
+}
+
+function stopCamera(): void {
+  stopDetectionOnly();
+  videoStream.value?.getTracks().forEach((t) => t.stop());
+  videoStream.value = null;
+  audioCtx?.close();
+  audioCtx = null;
+}
+
+function submitManual(): void {
+  const code = manualBarcode.value.trim();
+  if (!code) return;
+  stopCamera();
+  resolveBarcode(code);
+}
+
+async function resolveBarcode(code: string): Promise<void> {
+  const term = code.trim();
+  if (!term) return;
+
+  const cached = ItemCatalogService.getItems(authStore.company?.code ?? '');
+  let match = cached?.find((i) => i.number.toUpperCase() === term.toUpperCase())
+    ?? cached?.find((i) => i.number.toUpperCase().includes(term.toUpperCase()));
+
+  if (!match) {
+    // Cache miss (or catalog not loaded yet) — try one live lookup before
+    // giving up, same cache-first-then-live pattern the rest of this modal uses.
+    try {
+      const page = await ApiService.getItems({ search: term, limit: 5 });
+      match = page.value.find((i) => i.number.toUpperCase() === term.toUpperCase()) ?? page.value[0];
+    } catch {
+      // ignore — falls through to the not-found path below
+    }
+  }
+
+  if (match) {
+    viewMode.value = 'list';
+    await pickItem(match);
+    return;
+  }
+
+  // No match anywhere — drop back to search with the scanned code prefilled,
+  // same fallback rgmc-consignment-webapp uses when nothing matches.
+  lastScannedBarcode.value = term;
+  barcodeNotFound.value = true;
+  searchTerm.value = term;
+  offset.value = 0;
+  viewMode.value = 'list';
+  fetchItems();
+}
+
+if (props.startInScanner) {
+  void openScanner();
+}
+
+onUnmounted(() => {
+  stopCamera();
+});
+
 // ── Detail / add mode state ──
 const selectedItem = ref<Item | null>(null);
 const loadingDetail = ref(false);
@@ -325,6 +648,7 @@ function handleClose(): void {
     selectedItem.value = null;
     return;
   }
+  stopCamera();
   modalController.dismiss();
 }
 </script>
@@ -410,5 +734,301 @@ function handleClose(): void {
 
 .add-btn {
   margin-top: 16px;
+}
+
+/* ── Scan toggle button — deliberately NOT a bare toolbar icon. Solid,
+   high-contrast blue circle with a white glyph so scanning reads as a
+   primary action at a glance, not a hidden option a user has to notice. ── */
+.scan-toggle-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  margin-inline-end: 4px;
+  border: none;
+  border-radius: 50%;
+  background: var(--app-blue);
+  color: #ffffff;
+  font-size: 20px;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(36, 97, 168, 0.35);
+  transition: transform 0.15s var(--ease-out-quart), box-shadow 0.15s var(--ease-out-quart);
+  -webkit-tap-highlight-color: transparent;
+}
+
+.scan-toggle-btn:active {
+  transform: scale(0.94);
+}
+
+.scan-toggle-btn:disabled {
+  background: var(--app-border);
+  box-shadow: none;
+  cursor: not-allowed;
+}
+
+/* ── Barcode miss banner ── */
+.barcode-miss {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  color: var(--app-low-stock-text);
+  background: rgba(196, 148, 43, 0.1);
+  font-size: var(--text-sm);
+}
+
+.barcode-miss ion-icon {
+  font-size: 18px;
+  flex-shrink: 0;
+}
+
+/* ── Scanner ── */
+.scanner-wrap {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: #000;
+}
+
+.scanner-video {
+  width: 100%;
+  flex: 1;
+  object-fit: cover;
+  min-height: 260px;
+}
+
+.scanner-ui {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.scanner-frame {
+  width: 280px;
+  height: 160px;
+  position: relative;
+  overflow: hidden;
+}
+
+.corner {
+  position: absolute;
+  width: 24px;
+  height: 24px;
+  border-color: var(--app-blue);
+  border-style: solid;
+}
+.tl { top: 0; left: 0; border-width: 3px 0 0 3px; }
+.tr { top: 0; right: 0; border-width: 3px 3px 0 0; }
+.bl { bottom: 0; left: 0; border-width: 0 0 3px 3px; }
+.br { bottom: 0; right: 0; border-width: 0 3px 3px 0; }
+
+.scan-line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: rgba(36, 97, 168, 0.85);
+  animation: scan-sweep 1.8s ease-in-out infinite;
+}
+
+@keyframes scan-sweep {
+  0%   { top: 0; }
+  50%  { top: calc(100% - 2px); }
+  100% { top: 0; }
+}
+
+.scan-hint {
+  margin-top: 16px;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  pointer-events: none;
+}
+.scan-hint--scanning { color: rgba(255, 255, 255, 0.85); }
+.scan-hint--starting { color: rgba(255, 255, 255, 0.6); }
+.scan-hint--detected { color: var(--ion-color-success); }
+.scan-hint--error    { color: var(--ion-color-danger); }
+.scan-hint--multiple { color: var(--app-blue); }
+.scan-hint--confirm  { color: var(--ion-color-success); }
+
+/* ── Manual input ── */
+.manual-wrap {
+  background: #111;
+  padding: 16px;
+  flex-shrink: 0;
+}
+.manual-label {
+  font-size: 12px;
+  color: #888;
+  margin: 0 0 8px;
+}
+.manual-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.manual-input {
+  flex: 1;
+  --background: #222;
+  --color: #fff;
+  --placeholder-color: #666;
+  --border-radius: 8px;
+  border: 1px solid #333;
+  border-radius: 8px;
+}
+
+/* ── Multi-barcode picker ── */
+.multi-picker {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 10;
+  background: rgba(10, 10, 10, 0.96);
+  border-top: 1px solid #2a2a2a;
+  padding: 16px 16px 8px;
+  max-height: 62%;
+  overflow-y: auto;
+  pointer-events: all;
+}
+
+.multi-picker-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #fff;
+  margin: 0 0 2px;
+}
+
+.multi-picker-sub {
+  font-size: 11px;
+  color: #666;
+  margin: 0 0 12px;
+}
+
+.multi-bc-btn {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  padding: 11px 14px;
+  margin-bottom: 8px;
+  background: #1a1a1a;
+  border: 1px solid #2e2e2e;
+  border-radius: 10px;
+  cursor: pointer;
+  gap: 12px;
+  text-align: left;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.multi-bc-btn:active {
+  background: #252525;
+}
+
+.multi-bc-btn--priority {
+  border-color: var(--app-blue);
+  background: rgba(36, 97, 168, 0.12);
+}
+
+.multi-bc-format {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  color: #555;
+  flex-shrink: 0;
+  min-width: 64px;
+}
+
+.multi-bc-btn--priority .multi-bc-format {
+  color: var(--app-blue);
+}
+
+.multi-bc-value {
+  font-size: 15px;
+  font-weight: 600;
+  color: #fff;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  text-align: right;
+  font-family: monospace;
+}
+
+.rescan-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  padding: 10px;
+  margin-top: 2px;
+  background: transparent;
+  border: 1px solid #333;
+  border-radius: 8px;
+  color: #777;
+  font-size: 13px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* ── Single barcode confirm panel ── */
+.single-confirm {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 10;
+  background: rgba(10, 10, 10, 0.96);
+  border-top: 1px solid #1e3a2a;
+  padding: 16px 16px 8px;
+  pointer-events: all;
+}
+
+.single-confirm-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.single-confirm-icon {
+  font-size: 20px;
+  color: var(--ion-color-success);
+}
+
+.single-confirm-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #fff;
+  margin: 0;
+}
+
+.single-confirm-value {
+  font-size: 20px;
+  font-weight: 800;
+  color: #fff;
+  font-family: monospace;
+  letter-spacing: 2px;
+  text-align: center;
+  padding: 14px 12px;
+  margin: 0 0 14px;
+  background: #111;
+  border: 1px solid #1e3a2a;
+  border-radius: 10px;
+  word-break: break-all;
+}
+
+.single-confirm-btn {
+  margin-bottom: 8px;
 }
 </style>

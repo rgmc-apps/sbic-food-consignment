@@ -47,6 +47,18 @@
                       <span v-if="draftHasExpiringSoon(draft)" class="expiry-badge">Expiring soon</span>
                     </p>
                   </ion-label>
+                  <!-- Always-visible delete affordance, not just swipe-to-reveal
+                       (ion-item-options below) — swipe gestures are easy to miss
+                       entirely. stop propagation so tapping it doesn't also resume. -->
+                  <button
+                    type="button"
+                    class="draft-delete-btn"
+                    slot="end"
+                    aria-label="Delete draft"
+                    @click.stop="deleteDraft(draft.id)"
+                  >
+                    <ion-icon :icon="trashOutline" />
+                  </button>
                   <ion-icon :icon="chevronForwardOutline" slot="end" color="medium" />
                 </ion-item>
                 <ion-item-options side="end">
@@ -220,6 +232,27 @@ async function deleteDraft(id: string): Promise<void> {
   color: var(--app-blue);
   font-size: 18px;
   margin-inline-end: 12px;
+}
+
+.draft-delete-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  margin-inline-end: 4px;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--ion-color-danger);
+  font-size: 18px;
+  cursor: pointer;
+  transition: background-color 0.15s var(--ease-out-quart);
+  -webkit-tap-highlight-color: transparent;
+}
+
+.draft-delete-btn:active {
+  background: rgba(235, 68, 90, 0.12);
 }
 
 .empty-state {

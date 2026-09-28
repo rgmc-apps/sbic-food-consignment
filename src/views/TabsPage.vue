@@ -40,7 +40,7 @@
           <ion-label>History</ion-label>
         </ion-tab-button>
 
-        <ion-button v-if="isDesktop" fill="clear" class="tab-bar-profile-btn" @click="openProfile">
+        <ion-button v-if="isDesktop" fill="clear" class="tab-bar-profile-btn" @click="openProfileMenu">
           <ion-icon :icon="personCircleOutline" slot="icon-only" />
         </ion-button>
       </ion-tab-bar>
@@ -53,11 +53,11 @@ import { IonPage, IonTabs, IonTabBar, IonTabButton, IonIcon, IonLabel, IonBadge,
 import { homeOutline, scanOutline, timeOutline, personCircleOutline } from 'ionicons/icons';
 import { useSessionStore } from '@/stores/session.store';
 import { useViewport } from '@/composables/useViewport';
-import { useProfileModal } from '@/composables/useProfileModal';
+import { useProfile } from '@/composables/useProfile';
 
 const sessionStore = useSessionStore();
 const { isDesktop } = useViewport();
-const { openProfile } = useProfileModal();
+const { openProfileMenu } = useProfile();
 </script>
 
 <style scoped>

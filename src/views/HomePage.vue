@@ -4,7 +4,7 @@
       <ion-toolbar>
         <ion-title>SBIC Consignment</ion-title>
         <ion-buttons slot="end">
-          <ion-button @click="openProfile">
+          <ion-button @click="openProfileMenu">
             <ion-icon :icon="personCircleOutline" />
           </ion-button>
         </ion-buttons>
@@ -79,13 +79,13 @@ import { useRouter } from 'vue-router';
 import { useAuthStore } from '@/stores/auth.store';
 import { useSessionStore } from '@/stores/session.store';
 import { formatDate, isExpiringSoon } from '@/utils/format';
-import { useProfileModal } from '@/composables/useProfileModal';
+import { useProfile } from '@/composables/useProfile';
 import type { ScanSession } from '@/types';
 
 const router = useRouter();
 const authStore = useAuthStore();
 const sessionStore = useSessionStore();
-const { openProfile } = useProfileModal();
+const { openProfileMenu } = useProfile();
 
 const todayLabel = computed(() =>
   new Date().toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }),

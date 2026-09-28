@@ -4,8 +4,9 @@
       <ion-toolbar>
         <ion-title>SBIC Consignment</ion-title>
         <ion-buttons slot="end">
-          <ion-button @click="openProfileMenu">
-            <ion-icon :icon="personCircleOutline" />
+          <ion-button class="header-avatar-btn" @click="openProfileMenu">
+            <img v-if="authStore.user?.pictureUrl" :src="authStore.user.pictureUrl" alt="" class="header-avatar-img" />
+            <ion-icon v-else :icon="personCircleOutline" />
           </ion-button>
         </ion-buttons>
       </ion-toolbar>
@@ -120,6 +121,13 @@ async function deleteDraft(id: string): Promise<void> {
 </script>
 
 <style scoped>
+.header-avatar-img {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
 /* Desktop (≥1024px): identity + primary action become a sticky left column
    beside the drafts list, instead of a long stacked scroll. Mobile/tablet
    below this breakpoint is untouched — .home-layout stays a plain block. */

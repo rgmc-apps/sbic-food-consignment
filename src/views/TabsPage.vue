@@ -41,7 +41,14 @@
         </ion-tab-button>
 
         <ion-button v-if="isDesktop" fill="clear" class="tab-bar-profile-btn" @click="openProfileMenu">
-          <ion-icon :icon="personCircleOutline" slot="icon-only" />
+          <img
+            v-if="authStore.user?.pictureUrl"
+            :src="authStore.user.pictureUrl"
+            alt=""
+            class="tab-bar-avatar-img"
+            slot="icon-only"
+          />
+          <ion-icon v-else :icon="personCircleOutline" slot="icon-only" />
         </ion-button>
       </ion-tab-bar>
     </ion-tabs>
@@ -52,10 +59,12 @@
 import { IonPage, IonTabs, IonTabBar, IonTabButton, IonIcon, IonLabel, IonBadge, IonRouterOutlet, IonButton } from '@ionic/vue';
 import { homeOutline, scanOutline, timeOutline, personCircleOutline } from 'ionicons/icons';
 import { useSessionStore } from '@/stores/session.store';
+import { useAuthStore } from '@/stores/auth.store';
 import { useViewport } from '@/composables/useViewport';
 import { useProfile } from '@/composables/useProfile';
 
 const sessionStore = useSessionStore();
+const authStore = useAuthStore();
 const { isDesktop } = useViewport();
 const { openProfileMenu } = useProfile();
 </script>
@@ -88,5 +97,12 @@ const { openProfileMenu } = useProfile();
   --color: var(--app-gold-light);
   margin-inline-start: auto;
   margin-inline-end: 0;
+}
+
+.tab-bar-avatar-img {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  object-fit: cover;
 }
 </style>

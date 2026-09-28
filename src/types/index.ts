@@ -75,6 +75,11 @@ export interface OrderLine {
   expirationDate?: string;
   lotNo?: string;
   availableQuantity: number;
+  /** Item's Qty. per Unit of Measure for `unitOfMeasureCode` — carried
+   *  through so the backend can convert to the item's base UOM when writing
+   *  the BC Item Tracking Line (Reservation Entry). Defaults to 1 (i.e. the
+   *  sales UOM already is the base UOM) when the lookup didn't resolve one. */
+  qtyPerUnitOfMeasure?: number;
 }
 
 export type SessionStatus = 'draft' | 'submitted' | 'failed';
@@ -106,6 +111,9 @@ export interface FoodSalesOrderLinePayload {
   description: string;
   quantity: number;
   unitOfMeasureCode: string;
+  lotNo?: string;
+  expirationDate?: string;
+  qtyPerUnitOfMeasure?: number;
 }
 
 export interface FoodSalesOrderPayload {

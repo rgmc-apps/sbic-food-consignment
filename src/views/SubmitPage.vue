@@ -55,10 +55,24 @@
             <ion-item v-for="line in session.lines" :key="line.id">
               <ion-label>
                 <h2>{{ line.description || line.itemNumber }}</h2>
-                <p>#{{ line.itemNumber }} · {{ line.quantity }} {{ line.unitOfMeasureCode }}</p>
-                <p v-if="line.expirationDate">
-                  Expiry: {{ formatDate(line.expirationDate) }}
-                  <span v-if="isExpiringSoon(line.expirationDate)" class="expiry-badge">Expiring soon</span>
+                <p class="line-detail-row">
+                  <span class="line-detail-label">Item No.</span>
+                  <span>#{{ line.itemNumber }}</span>
+                </p>
+                <p class="line-detail-row">
+                  <span class="line-detail-label">Quantity</span>
+                  <span>{{ line.quantity }} {{ line.unitOfMeasureCode }}</span>
+                </p>
+                <p class="line-detail-row">
+                  <span class="line-detail-label">Expiry Date</span>
+                  <span>
+                    {{ line.expirationDate ? formatDate(line.expirationDate) : '—' }}
+                    <span v-if="isExpiringSoon(line.expirationDate)" class="expiry-badge">Expiring soon</span>
+                  </span>
+                </p>
+                <p v-if="line.lotNo" class="line-detail-row">
+                  <span class="line-detail-label">Lot No.</span>
+                  <span>{{ line.lotNo }}</span>
                 </p>
               </ion-label>
             </ion-item>
@@ -137,6 +151,9 @@ async function handleSubmit(): Promise<void> {
     description: l.description,
     quantity: l.quantity,
     unitOfMeasureCode: l.unitOfMeasureCode,
+    lotNo: l.lotNo,
+    expirationDate: l.expirationDate,
+    qtyPerUnitOfMeasure: l.qtyPerUnitOfMeasure,
   }));
   const historyLines: OrderHistoryLine[] = submitLines;
 
@@ -273,6 +290,20 @@ function finishAndGoHome(): void {
   margin: 0 12px;
   border-radius: var(--app-radius);
   overflow: hidden;
+}
+
+.line-detail-row {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin: 2px 0 0;
+}
+
+.line-detail-label {
+  color: var(--app-text-muted);
+  font-size: var(--text-xs);
+  min-width: 78px;
+  flex-shrink: 0;
 }
 
 .submit-error {

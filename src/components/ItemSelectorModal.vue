@@ -97,7 +97,7 @@
                 </ion-button>
               </div>
               <p class="detail-hint" :class="{ 'detail-hint--low': isLowStock }">
-                {{ availableQuantity }} available{{ oldestLot?.lotNo ? ` (lot ${oldestLot.lotNo})` : '' }}
+                {{ availableQuantity }} available{{ selectedLot?.lotNo ? ` (lot ${selectedLot.lotNo})` : '' }}
               </p>
             </ion-item>
 
@@ -112,10 +112,23 @@
 
             <ion-item lines="none" class="detail-field">
               <ion-label position="stacked">Expiry Date</ion-label>
-              <p class="expiry-value">
-                {{ formatDate(oldestLot?.expirationDate) }}
-                <span v-if="isExpiringSoon(oldestLot?.expirationDate)" class="expiry-badge">Expiring soon</span>
+              <!-- Multiple open lots: let the user pick, defaulted to the
+                   earliest expiration (lots arrive oldest-first from the
+                   backend, FEFO). Single lot: no choice to make, plain text. -->
+              <ion-select
+                v-if="lots.length > 1"
+                v-model="selectedLotIndex"
+                interface="action-sheet"
+                placeholder="Select expiration date"
+              >
+                <ion-select-option v-for="(lot, i) in lots" :key="lot.lotNo ?? i" :value="i">
+                  {{ formatDate(lot.expirationDate) }}{{ lot.lotNo ? ` — lot ${lot.lotNo}` : '' }} ({{ lot.remainingQuantity }} avail.)
+                </ion-select-option>
+              </ion-select>
+              <p v-else class="expiry-value">
+                {{ formatDate(selectedLot?.expirationDate) }}
               </p>
+              <span v-if="isExpiringSoon(selectedLot?.expirationDate)" class="expiry-badge">Expiring soon</span>
             </ion-item>
 
             <p v-if="availableQuantity === 0" class="detail-warning">
@@ -238,9 +251,15 @@ const lots = ref<ItemLot[]>([]);
 const uomOptions = ref<ItemUnitOfMeasure[]>([]);
 const quantity = ref(1);
 const unitOfMeasureCode = ref('');
+// Index into `lots` (already oldest-expiration-first from the backend) — the
+// lot the line will actually be drawn from. Defaults to 0 (earliest expiry,
+// FEFO) and only exposed as a picker when more than one lot is open.
+const selectedLotIndex = ref(0);
 
-const availableQuantity = computed(() => lots.value.reduce((sum, l) => sum + (l.remainingQuantity || 0), 0));
-const oldestLot = computed(() => lots.value[0] ?? null);
+const selectedLot = computed(() => lots.value[selectedLotIndex.value] ?? lots.value[0] ?? null);
+// Quantity is capped by the SELECTED lot's own remaining stock, not the sum
+// across all lots — a sales line is drawn from one physical batch.
+const availableQuantity = computed(() => selectedLot.value?.remainingQuantity || 0);
 const isLowStock = computed(() => availableQuantity.value > 0 && availableQuantity.value <= LOW_STOCK_THRESHOLD);
 const canAdd = computed(() =>
   !!selectedItem.value && !!unitOfMeasureCode.value && quantity.value >= 1 && quantity.value <= availableQuantity.value,
@@ -259,6 +278,7 @@ async function pickItem(item: Item): Promise<void> {
   selectedItem.value = item;
   loadingDetail.value = true;
   quantity.value = 1;
+  selectedLotIndex.value = 0;
   try {
     const [lotsPage, uomList] = await Promise.all([
       ApiService.getItemLots(item.number, { limit: LOTS_FETCH_LIMIT }),
@@ -279,13 +299,15 @@ watch(availableQuantity, () => clampQty());
 
 function confirmAdd(): void {
   if (!canAdd.value || !selectedItem.value) return;
+  const selectedUom = uomOptions.value.find((u) => u.code === unitOfMeasureCode.value);
   modalController.dismiss({
     item: selectedItem.value,
     quantity: quantity.value,
     unitOfMeasureCode: unitOfMeasureCode.value,
-    expirationDate: oldestLot.value?.expirationDate,
-    lotNo: oldestLot.value?.lotNo,
+    expirationDate: selectedLot.value?.expirationDate,
+    lotNo: selectedLot.value?.lotNo,
     availableQuantity: availableQuantity.value,
+    qtyPerUnitOfMeasure: selectedUom?.qtyPerUnitOfMeasure ?? 1,
   }, 'added');
 }
 

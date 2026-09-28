@@ -1,9 +1,11 @@
 /**
- * The ONLY localStorage usage in this app. Unlike the garments app, there is no
- * customer/item/price catalog cache, no sync timestamps, no IndexedDB — every
- * screen fetches live from the backend. This module exists purely so that an
- * in-progress, not-yet-submitted order isn't lost if the network drops or the
- * tab is closed mid-session.
+ * Auth session, selected company, and draft-session autosave — this module
+ * exists purely so that an in-progress, not-yet-submitted order isn't lost if
+ * the network drops or the tab is closed mid-session. The one other
+ * localStorage key in this app is the item catalog cache (see
+ * item-catalog.service.ts) — a narrow, documented exception (PRODUCT.md)
+ * for static item number/description only; customer data, price, quantity,
+ * lot, and expiry are still never cached, no sync timestamps, no IndexedDB.
  */
 import type { Contact, ScanSession } from '@/types';
 

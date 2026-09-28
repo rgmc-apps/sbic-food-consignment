@@ -161,9 +161,12 @@ import {
   closeOutline, chevronBackOutline, chevronForwardOutline, searchOutline, removeOutline, addOutline,
 } from 'ionicons/icons';
 import { ApiService } from '@/services/api.service';
-import { takePrefetchedItems } from '@/services/item-prefetch.service';
+import { ItemCatalogService } from '@/services/item-catalog.service';
+import { useAuthStore } from '@/stores/auth.store';
 import { formatDate, isExpiringSoon } from '@/utils/format';
-import type { Item, ItemLot, ItemUnitOfMeasure } from '@/types';
+import type { Item, ItemLot, ItemUnitOfMeasure, Page } from '@/types';
+
+const authStore = useAuthStore();
 
 const PAGE_SIZE = 25;
 // Lots per item are a small, bounded set in practice (a handful of open batches),
@@ -198,13 +201,30 @@ const pagerLabel = computed(() => {
   return `${from}–${to} of ${total.value}`;
 });
 
+// Filters/paginates the cached catalog client-side — number/description
+// substring match, same semantics as the live /food/items search. Instant:
+// no network round trip once the catalog is loaded.
+function filterCatalog(catalog: Item[], search: string, limit: number, off: number): Page<Item> {
+  const term = search.trim().toLowerCase();
+  const filtered = term
+    ? catalog.filter((it) => it.number.toLowerCase().includes(term) || (it.description ?? '').toLowerCase().includes(term))
+    : catalog;
+  return { value: filtered.slice(off, off + limit), total: filtered.length, limit, offset: off };
+}
+
 let searchToken = 0;
 async function fetchItems(): Promise<void> {
   loadingItems.value = true;
   itemsError.value = null;
   const token = ++searchToken;
   try {
-    const page = await ApiService.getItems({ search: searchTerm.value.trim(), limit: PAGE_SIZE, offset: offset.value });
+    // Cache-first: the item catalog (number/description/base UOM) preloaded
+    // on login. Quantity/lot/expiry are never part of this cache — those are
+    // still always fetched live once an item is picked (see pickItem below).
+    const cached = ItemCatalogService.getItems(authStore.company?.code ?? '');
+    const page = cached
+      ? filterCatalog(cached, searchTerm.value, PAGE_SIZE, offset.value)
+      : await ApiService.getItems({ search: searchTerm.value.trim(), limit: PAGE_SIZE, offset: offset.value });
     if (token !== searchToken) return; // a newer search superseded this one
     items.value = page.value;
     total.value = page.total;
@@ -231,18 +251,7 @@ function goPrevPage(): void {
   fetchItems();
 }
 
-// If Splash already warmed the first, unfiltered page (see item-prefetch.service),
-// show it immediately instead of waiting on a network round trip. Any other page —
-// a search, page 2, or a prefetch older than its freshness window — always goes
-// through the normal live fetch above; this only ever short-circuits the exact
-// same first request the modal would have made anyway.
-const prefetchedInitial = takePrefetchedItems();
-if (prefetchedInitial) {
-  items.value = prefetchedInitial.value;
-  total.value = prefetchedInitial.total;
-} else {
-  fetchItems();
-}
+fetchItems();
 
 // ── Detail / add mode state ──
 const selectedItem = ref<Item | null>(null);

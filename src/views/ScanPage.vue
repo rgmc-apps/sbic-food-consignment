@@ -78,9 +78,12 @@
                 <ion-label>
                   <h2>{{ line.description || line.itemNumber }}</h2>
                   <p>#{{ line.itemNumber }} · {{ line.quantity }} {{ line.unitOfMeasureCode }}</p>
-                  <p v-if="line.expirationDate">
+                  <p v-if="line.expirationDate" class="expiry-row">
                     Expiry: {{ formatDate(line.expirationDate) }}
                     <span v-if="isExpiringSoon(line.expirationDate)" class="expiry-badge">Expiring soon</span>
+                    <button type="button" class="expiry-edit-btn" aria-label="Edit expiration date" @click.stop="openExpiryEditor($event, line)">
+                      <ion-icon :icon="createOutline" />
+                    </button>
                   </p>
                 </ion-label>
               </ion-item>
@@ -116,14 +119,14 @@ import {
   IonList, IonItem, IonLabel, IonItemSliding, IonItemOptions, IonItemOption,
   IonFooter, modalController, popoverController,
 } from '@ionic/vue';
-import { addCircleOutline, chevronForwardOutline, trashOutline, cubeOutline, homeOutline, personOutline, calendarOutline, barcodeOutline } from 'ionicons/icons';
+import { addCircleOutline, chevronForwardOutline, trashOutline, cubeOutline, homeOutline, personOutline, calendarOutline, barcodeOutline, createOutline } from 'ionicons/icons';
 import { onBeforeRouteLeave, useRouter } from 'vue-router';
 import { useSessionStore } from '@/stores/session.store';
 import { formatDate, isExpiringSoon } from '@/utils/format';
 import ItemSelectorModal from '@/components/ItemSelectorModal.vue';
 import CustomerSelectorModal from '@/components/CustomerSelectorModal.vue';
 import DatePickerPopover from '@/components/DatePickerPopover.vue';
-import type { Customer, Item } from '@/types';
+import type { Customer, Item, OrderLine } from '@/types';
 
 const router = useRouter();
 const sessionStore = useSessionStore();
@@ -185,6 +188,22 @@ async function openItemSelector(startInScanner = false): Promise<void> {
       availableQuantity: data.availableQuantity,
       qtyPerUnitOfMeasure: data.qtyPerUnitOfMeasure,
     });
+  }
+}
+
+async function openExpiryEditor(ev: Event, line: OrderLine): Promise<void> {
+  const popover = await popoverController.create({
+    component: DatePickerPopover,
+    componentProps: { modelValue: line.expirationDate },
+    event: ev,
+    side: 'bottom',
+    alignment: 'start',
+    cssClass: 'date-picker-popover',
+  });
+  await popover.present();
+  const { data, role } = await popover.onDidDismiss<string>();
+  if (role === 'picked' && data) {
+    sessionStore.updateLineExpirationDate(line.id, data);
   }
 }
 

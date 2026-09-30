@@ -85,6 +85,15 @@ export const useSessionStore = defineStore('session', () => {
     _saveDraft();
   }
 
+  function updateLineExpirationDate(lineId: string, expirationDate: string): void {
+    if (!currentSession.value) return;
+    const idx = currentSession.value.lines.findIndex((l) => l.id === lineId);
+    if (idx === -1) return;
+    currentSession.value.lines[idx] = { ...currentSession.value.lines[idx], expirationDate };
+    _touch();
+    _saveDraft();
+  }
+
   /** Called on navigation away — persists to drafts but keeps session active. */
   function autoSaveDraft(): void {
     if (!currentSession.value || !currentSession.value.customer) return;
@@ -158,6 +167,7 @@ export const useSessionStore = defineStore('session', () => {
     addLine,
     removeLine,
     updateLineQuantity,
+    updateLineExpirationDate,
     autoSaveDraft,
     saveAsDraftAndExit,
     markSubmitted,

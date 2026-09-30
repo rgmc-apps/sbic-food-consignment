@@ -431,6 +431,37 @@ ion-spinner {
   vertical-align: middle;
 }
 
+/* Inline "edit expiration date" affordance — same small pencil button next
+   to the expiry line on Scan's Order Lines and Submit's review, so either
+   spot lets a user correct a lot's expiry without removing/re-adding it. */
+.expiry-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.expiry-edit-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--app-text-muted);
+  font-size: 14px;
+  cursor: pointer;
+  transition: background-color 0.15s var(--ease-out-quart), color 0.15s var(--ease-out-quart);
+  -webkit-tap-highlight-color: transparent;
+}
+
+.expiry-edit-btn:active {
+  background: var(--app-blue-pale);
+  color: var(--app-blue);
+}
+
 .section-label {
   font-size: var(--text-xs);
   font-weight: 700;

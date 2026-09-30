@@ -63,12 +63,21 @@
                   <span class="line-detail-label">Quantity</span>
                   <span>{{ line.quantity }} {{ line.unitOfMeasureCode }}</span>
                 </p>
-                <p class="line-detail-row">
+                <p class="line-detail-row expiry-row">
                   <span class="line-detail-label">Expiry Date</span>
                   <span>
                     {{ line.expirationDate ? formatDate(line.expirationDate) : '—' }}
                     <span v-if="isExpiringSoon(line.expirationDate)" class="expiry-badge">Expiring soon</span>
                   </span>
+                  <button
+                    v-if="line.expirationDate"
+                    type="button"
+                    class="expiry-edit-btn"
+                    aria-label="Edit expiration date"
+                    @click.stop="openExpiryEditor($event, line)"
+                  >
+                    <ion-icon :icon="createOutline" />
+                  </button>
                 </p>
                 <p v-if="line.lotNo" class="line-detail-row">
                   <span class="line-detail-label">Lot No.</span>
@@ -117,16 +126,17 @@ import { ref, computed } from 'vue';
 import {
   IonPage, IonHeader, IonToolbar, IonTitle, IonButtons, IonBackButton, IonContent, IonCard,
   IonCardHeader, IonCardSubtitle, IonCardTitle, IonCardContent, IonItem, IonLabel, IonInput,
-  IonList, IonButton, IonSpinner, IonIcon,
+  IonList, IonButton, IonSpinner, IonIcon, popoverController,
 } from '@ionic/vue';
-import { checkmarkCircleOutline } from 'ionicons/icons';
+import { checkmarkCircleOutline, createOutline } from 'ionicons/icons';
 import { useRouter } from 'vue-router';
 import { useAuthStore } from '@/stores/auth.store';
 import { useSessionStore } from '@/stores/session.store';
 import { ApiService, ApiError } from '@/services/api.service';
 import { formatDate, isExpiringSoon } from '@/utils/format';
 import { generateId } from '@/utils/id';
-import type { FoodSalesOrderResult, OrderHistoryLine } from '@/types';
+import DatePickerPopover from '@/components/DatePickerPopover.vue';
+import type { FoodSalesOrderResult, OrderHistoryLine, OrderLine } from '@/types';
 
 const router = useRouter();
 const authStore = useAuthStore();
@@ -141,6 +151,22 @@ const result = ref<FoodSalesOrderResult | null>(null);
 const canSubmit = computed(() =>
   !!session.value?.customer && !!session.value.lines.length && !!orderNumberInput.value.trim(),
 );
+
+async function openExpiryEditor(ev: Event, line: OrderLine): Promise<void> {
+  const popover = await popoverController.create({
+    component: DatePickerPopover,
+    componentProps: { modelValue: line.expirationDate },
+    event: ev,
+    side: 'bottom',
+    alignment: 'start',
+    cssClass: 'date-picker-popover',
+  });
+  await popover.present();
+  const { data, role } = await popover.onDidDismiss<string>();
+  if (role === 'picked' && data) {
+    sessionStore.updateLineExpirationDate(line.id, data);
+  }
+}
 
 async function handleSubmit(): Promise<void> {
   if (!session.value?.customer || !canSubmit.value) return;

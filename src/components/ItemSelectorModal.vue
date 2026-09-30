@@ -64,7 +64,12 @@
               <ion-item v-for="it in items" :key="it.id" button @click="pickItem(it)">
                 <ion-label>
                   <h2>{{ it.description || it.number }}</h2>
-                  <p>#{{ it.number }} · {{ it.description || '—' }}</p>
+                  <p>
+                    #{{ it.number }} · {{ it.description || '—' }}
+                    <span v-if="settingsStore.showItemPrices && priceMap[it.number] != null" class="item-price">
+                      · {{ formatCurrency(priceMap[it.number]) }}
+                    </span>
+                  </p>
                 </ion-label>
                 <ion-icon :icon="chevronForwardOutline" slot="end" color="medium" />
               </ion-item>
@@ -190,7 +195,9 @@
               </div>
               <p class="detail-hint" :class="{ 'detail-hint--low': isLowStock }">
                 {{ availableQuantity }} available{{ selectedLot?.lotNo ? ` (lot ${selectedLot.lotNo})` : '' }}
+                <span v-if="quantity > 0" class="remaining-preview">· {{ remainingAfterQty }} will remain</span>
               </p>
+              <p v-if="availabilityError" class="detail-warning">{{ availabilityError }}</p>
             </ion-item>
 
             <ion-item lines="none" class="detail-field">
@@ -218,9 +225,13 @@
                 </ion-select-option>
               </ion-select>
               <p v-else class="expiry-value">
-                {{ formatDate(selectedLot?.expirationDate) }}
+                {{ formatDate(effectiveExpirationDate) }}
               </p>
-              <span v-if="isExpiringSoon(selectedLot?.expirationDate)" class="expiry-badge">Expiring soon</span>
+              <p v-if="shelfLifeApplied" class="shelf-life-note">
+                Entered expiry: <strong>{{ formatDate(effectiveExpirationDate) }}</strong>
+                (lot expiry {{ formatDate(selectedLot?.expirationDate) }} + {{ customerShelfLifeMonths }} mo. customer shelf life)
+              </p>
+              <span v-if="isExpiringSoon(effectiveExpirationDate)" class="expiry-badge">Expiring soon</span>
             </ion-item>
 
             <p v-if="availableQuantity === 0" class="detail-warning">
@@ -230,10 +241,11 @@
             <ion-button
               expand="block"
               class="add-btn"
-              :disabled="!canAdd"
+              :disabled="!canAdd || verifyingAvailability"
               @click="confirmAdd"
             >
-              Add to Order
+              <ion-spinner v-if="verifyingAvailability" name="dots" />
+              <span v-else>Add to Order</span>
             </ion-button>
           </div>
         </Transition>
@@ -256,12 +268,16 @@ import {
 import { ApiService } from '@/services/api.service';
 import { ItemCatalogService } from '@/services/item-catalog.service';
 import { useAuthStore } from '@/stores/auth.store';
-import { formatDate, isExpiringSoon } from '@/utils/format';
+import { useSessionStore } from '@/stores/session.store';
+import { useSettingsStore } from '@/stores/settings.store';
+import { formatDate, formatCurrency, isExpiringSoon, addShelfLifeMonths } from '@/utils/format';
 import type { Item, ItemLot, ItemUnitOfMeasure, Page } from '@/types';
 
 const props = defineProps<{ startInScanner?: boolean }>();
 
 const authStore = useAuthStore();
+const sessionStore = useSessionStore();
+const settingsStore = useSettingsStore();
 
 const PAGE_SIZE = 25;
 // Lots per item are a small, bounded set in practice (a handful of open batches),
@@ -287,6 +303,11 @@ const loadingItems = ref(false);
 const itemsError = ref<string | null>(null);
 const offset = ref(0);
 const total = ref(0);
+
+// Live-only, never part of the item catalog cache (see PRODUCT.md — pricing
+// is always fetched fresh) — populated for whichever page of items is
+// currently on screen, only when the "Display Item Prices" setting is on.
+const priceMap = ref<Record<string, number>>({});
 
 const hasNextPage = computed(() => offset.value + PAGE_SIZE < total.value);
 const pagerLabel = computed(() => {
@@ -323,11 +344,24 @@ async function fetchItems(): Promise<void> {
     if (token !== searchToken) return; // a newer search superseded this one
     items.value = page.value;
     total.value = page.total;
+    if (settingsStore.showItemPrices) void loadPricesFor(page.value);
   } catch (err) {
     if (token !== searchToken) return;
     itemsError.value = err instanceof Error ? err.message : 'Could not load items.';
   } finally {
     if (token === searchToken) loadingItems.value = false;
+  }
+}
+
+// Fire-and-forget, on top of the item list rendering immediately — prices
+// are a nice-to-have overlay, never something worth blocking or re-erroring
+// the whole list over.
+async function loadPricesFor(pageItems: Item[]): Promise<void> {
+  try {
+    const map = await ApiService.getItemPrices(pageItems.map((i) => i.number));
+    priceMap.value = { ...priceMap.value, ...map };
+  } catch {
+    // ignore — prices just won't show for this page
   }
 }
 
@@ -593,9 +627,32 @@ const selectedLot = computed(() => lots.value[selectedLotIndex.value] ?? lots.va
 // across all lots — a sales line is drawn from one physical batch.
 const availableQuantity = computed(() => selectedLot.value?.remainingQuantity || 0);
 const isLowStock = computed(() => availableQuantity.value > 0 && availableQuantity.value <= LOW_STOCK_THRESHOLD);
+
+// "Include Item Shelf Life" setting — extends the SELECTED lot's real BC
+// expiration date by the current session's customer's Prod Shelf Life
+// (months). This becomes the effective expiry used everywhere for this
+// line: displayed here, and carried into the order line / BC Item Tracking
+// Line on submission — not just a cosmetic label. The lot picker options
+// (when more than one lot is open) still show each lot's own real date, so
+// FEFO selection stays based on true expiry.
+const customerShelfLifeMonths = computed(() => sessionStore.currentSession?.customer?.prodShelfLife ?? 0);
+const effectiveExpirationDate = computed(() => {
+  if (!settingsStore.includeShelfLife) return selectedLot.value?.expirationDate;
+  return addShelfLifeMonths(selectedLot.value?.expirationDate, customerShelfLifeMonths.value);
+});
+const shelfLifeApplied = computed(() =>
+  settingsStore.includeShelfLife && customerShelfLifeMonths.value > 0 && !!selectedLot.value?.expirationDate,
+);
 const canAdd = computed(() =>
   !!selectedItem.value && !!unitOfMeasureCode.value && quantity.value >= 1 && quantity.value <= availableQuantity.value,
 );
+// Temporary, client-only preview — not persisted or sent anywhere — so the
+// user sees what the lot's stock would look like after this exact order
+// line, updating live as they adjust the quantity stepper.
+const remainingAfterQty = computed(() => Math.max(availableQuantity.value - (quantity.value || 0), 0));
+
+const verifyingAvailability = ref(false);
+const availabilityError = ref<string | null>(null);
 
 function clampQty(): void {
   if (!Number.isFinite(quantity.value) || quantity.value < 1) quantity.value = 1;
@@ -611,7 +668,12 @@ async function pickItem(item: Item): Promise<void> {
   loadingDetail.value = true;
   quantity.value = 1;
   selectedLotIndex.value = 0;
+  availabilityError.value = null;
   try {
+    // Always a live hit, never the item catalog cache — this is the first
+    // of the three points (item selection, adding to the order, submitting
+    // the order) where lot availability is re-verified against BC, so a
+    // second concurrent user's already-committed order is reflected here.
     const [lotsPage, uomList] = await Promise.all([
       ApiService.getItemLots(item.number, { limit: LOTS_FETCH_LIMIT }),
       ApiService.getItemUnitsOfMeasure(item.number),
@@ -629,16 +691,57 @@ async function pickItem(item: Item): Promise<void> {
 
 watch(availableQuantity, () => clampQty());
 
-function confirmAdd(): void {
+async function confirmAdd(): Promise<void> {
   if (!canAdd.value || !selectedItem.value) return;
+  const item = selectedItem.value;
+  const lot = selectedLot.value;
+  availabilityError.value = null;
+
+  // Live re-check right before committing to the order — another user of
+  // this app could have added the same lot to their own order in the time
+  // between selecting this item and tapping "Add to Order", so the number
+  // shown on screen may already be stale. This, not the initial load in
+  // pickItem, is what actually prevents two concurrent users from both
+  // over-committing the same physical batch.
+  if (lot?.lotNo) {
+    verifyingAvailability.value = true;
+    try {
+      const freshPage = await ApiService.getItemLots(item.number, { limit: LOTS_FETCH_LIMIT });
+      const freshLot = freshPage.value.find((l) => l.lotNo === lot.lotNo && l.locationCode === lot.locationCode);
+      const freshQty = freshLot?.remainingQuantity ?? 0;
+      if (quantity.value > freshQty) {
+        lots.value = freshPage.value;
+        const newIndex = freshPage.value.findIndex((l) => l.lotNo === lot.lotNo && l.locationCode === lot.locationCode);
+        selectedLotIndex.value = newIndex >= 0 ? newIndex : 0;
+        clampQty();
+        availabilityError.value = freshQty > 0
+          ? `Only ${freshQty} left for lot ${lot.lotNo} now — someone else may have just used some. Quantity adjusted — review and try again.`
+          : `Lot ${lot.lotNo} is no longer available — someone else may have just used it on another order.`;
+        return;
+      }
+    } catch {
+      // Live check failed (network hiccup) — don't block on it; BC's own
+      // FEFO-capped lot availability at submission is the final authority.
+    } finally {
+      verifyingAvailability.value = false;
+    }
+  }
+
   const selectedUom = uomOptions.value.find((u) => u.code === unitOfMeasureCode.value);
+  // Uses the captured `lot`, not the (possibly reassigned) selectedLot/
+  // effectiveExpirationDate computed chain — the live re-check above only
+  // reassigns lots.value on the early-return failure path, but computing
+  // directly from `lot` here avoids any dependency on that staying in sync.
+  const expirationDate = settingsStore.includeShelfLife
+    ? addShelfLifeMonths(lot?.expirationDate, customerShelfLifeMonths.value)
+    : lot?.expirationDate;
   modalController.dismiss({
-    item: selectedItem.value,
+    item,
     quantity: quantity.value,
     unitOfMeasureCode: unitOfMeasureCode.value,
-    expirationDate: selectedLot.value?.expirationDate,
-    lotNo: selectedLot.value?.lotNo,
-    locationCode: selectedLot.value?.locationCode,
+    expirationDate,
+    lotNo: lot?.lotNo,
+    locationCode: lot?.locationCode,
     availableQuantity: availableQuantity.value,
     qtyPerUnitOfMeasure: selectedUom?.qtyPerUnitOfMeasure ?? 1,
   }, 'added');
@@ -721,10 +824,25 @@ function handleClose(): void {
   font-weight: 700;
 }
 
+.remaining-preview {
+  opacity: 0.8;
+}
+
 .expiry-value {
   font-weight: 600;
   color: var(--app-fg);
   margin: 6px 0 0;
+}
+
+.shelf-life-note {
+  font-size: var(--text-2xs);
+  color: var(--app-text-muted);
+  margin: 4px 0 0;
+}
+
+.item-price {
+  color: var(--app-blue);
+  font-weight: 600;
 }
 
 .detail-warning {

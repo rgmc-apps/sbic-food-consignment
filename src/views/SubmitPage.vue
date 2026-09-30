@@ -83,6 +83,10 @@
                   <span class="line-detail-label">Lot No.</span>
                   <span>{{ line.lotNo }}</span>
                 </p>
+                <p v-if="settingsStore.showItemPrices && priceMap[line.itemNumber] != null" class="line-detail-row">
+                  <span class="line-detail-label">Price</span>
+                  <span>{{ formatCurrency(priceMap[line.itemNumber]) }}</span>
+                </p>
               </ion-label>
             </ion-item>
           </ion-list>
@@ -132,8 +136,9 @@ import { checkmarkCircleOutline, createOutline } from 'ionicons/icons';
 import { useRouter } from 'vue-router';
 import { useAuthStore } from '@/stores/auth.store';
 import { useSessionStore } from '@/stores/session.store';
+import { useSettingsStore } from '@/stores/settings.store';
 import { ApiService, ApiError } from '@/services/api.service';
-import { formatDate, isExpiringSoon } from '@/utils/format';
+import { formatDate, formatCurrency, isExpiringSoon } from '@/utils/format';
 import { generateId } from '@/utils/id';
 import DatePickerPopover from '@/components/DatePickerPopover.vue';
 import type { FoodSalesOrderResult, OrderHistoryLine, OrderLine } from '@/types';
@@ -141,11 +146,21 @@ import type { FoodSalesOrderResult, OrderHistoryLine, OrderLine } from '@/types'
 const router = useRouter();
 const authStore = useAuthStore();
 const sessionStore = useSessionStore();
+const settingsStore = useSettingsStore();
 const session = computed(() => sessionStore.currentSession);
 
 const orderNumberInput = ref(session.value?.orderNumber ?? '');
 const submitting = ref(false);
 const submitError = ref<string | null>(null);
+
+// Live-only, never cached — loaded once for whatever lines are already on
+// this order, only when the "Display Item Prices" setting is on.
+const priceMap = ref<Record<string, number>>({});
+if (settingsStore.showItemPrices && session.value?.lines.length) {
+  ApiService.getItemPrices(session.value.lines.map((l) => l.itemNumber))
+    .then((map) => { priceMap.value = map; })
+    .catch(() => { /* ignore — prices just won't show */ });
+}
 const result = ref<FoodSalesOrderResult | null>(null);
 
 const canSubmit = computed(() =>
@@ -168,10 +183,43 @@ async function openExpiryEditor(ev: Event, line: OrderLine): Promise<void> {
   }
 }
 
+// Third and final live re-check (after item selection and adding to the
+// order in ItemSelectorModal) — right before the order is actually created
+// in BC, so a second concurrent user's order submitted in the gap since
+// this session's lines were added doesn't get silently oversold. Returns
+// the first line found short, or null if every lot-tracked line still has
+// enough remaining quantity.
+async function verifyLotAvailability(lines: OrderLine[]): Promise<string | null> {
+  const lotLines = lines.filter((l) => l.lotNo);
+  if (!lotLines.length) return null;
+  const results = await Promise.all(lotLines.map(async (line) => {
+    try {
+      const page = await ApiService.getItemLots(line.itemNumber, { limit: 100 });
+      const fresh = page.value.find((l) => l.lotNo === line.lotNo && l.locationCode === line.locationCode);
+      const freshQty = fresh?.remainingQuantity ?? 0;
+      if (line.quantity > freshQty) {
+        return `${line.description || line.itemNumber}: only ${freshQty} left for lot ${line.lotNo} now — someone else may have just used it. Adjust the quantity and try again.`;
+      }
+    } catch {
+      // Live check failed (network hiccup) — don't block submission on it;
+      // BC's own FEFO-capped lot availability is the final authority.
+    }
+    return null;
+  }));
+  return results.find((r): r is string => r !== null) ?? null;
+}
+
 async function handleSubmit(): Promise<void> {
   if (!session.value?.customer || !canSubmit.value) return;
   submitting.value = true;
   submitError.value = null;
+
+  const availabilityIssue = await verifyLotAvailability(session.value.lines);
+  if (availabilityIssue) {
+    submitError.value = availabilityIssue;
+    submitting.value = false;
+    return;
+  }
 
   const customer = session.value.customer;
   const postingDate = session.value.postingDate;

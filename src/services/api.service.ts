@@ -147,6 +147,17 @@ export const ApiService = {
     return toPage<ItemUnitOfMeasure>(res.data).value;
   },
 
+  /** Live unit price for a set of items, keyed by item number — never
+   *  cached, one bulk call for whatever page of items is on screen. Only
+   *  called when the "Display Item Prices" setting is on. */
+  async getItemPrices(itemNumbers: string[]): Promise<Record<string, number>> {
+    if (!itemNumbers.length) return {};
+    const res = await apiClient.get('/food/items/prices', {
+      params: { numbers: itemNumbers.join(',') },
+    });
+    return res.data as Record<string, number>;
+  },
+
   /** Synchronous, direct submit to Business Central — no queue, no polling. */
   async submitSalesOrder(payload: FoodSalesOrderPayload): Promise<FoodSalesOrderResult> {
     const res = await apiClient.post('/food/sales-orders', payload);

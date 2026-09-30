@@ -37,6 +37,10 @@ export interface Customer {
   phoneNumber?: string;
   email?: string;
   chain?: boolean;
+  /** Months of shelf life this customer requires — from BC's Customer table
+   *  "Prod Shelf Life" field. Used only when the "Include Item Shelf Life"
+   *  setting is on, to extend a picked lot's expiration date. */
+  prodShelfLife?: number;
 }
 
 /** BC Item — catalog fields only, no brand/family filter for this app. */

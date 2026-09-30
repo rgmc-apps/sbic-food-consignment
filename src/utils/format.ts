@@ -5,6 +5,11 @@ export function formatDate(value: string | null | undefined): string {
   return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
 }
 
+export function formatCurrency(value: number | null | undefined): string {
+  if (value == null || Number.isNaN(value)) return '—';
+  return new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP' }).format(value);
+}
+
 export function todayISO(): string {
   return new Date().toISOString().split('T')[0];
 }
@@ -22,4 +27,28 @@ export function isExpiringSoon(value: string | null | undefined, withinDays = EX
   target.setHours(0, 0, 0, 0);
   const days = Math.round((target.getTime() - today.getTime()) / 86_400_000);
   return days <= withinDays;
+}
+
+/** Extends a lot's real BC expiration date by the selected customer's Prod
+ *  Shelf Life (months) — the "Include Item Shelf Life" setting. Returns the
+ *  original date unchanged if there's nothing to add (no lot expiry, no
+ *  customer shelf-life term, or a non-positive value). */
+export function addShelfLifeMonths(expirationDate: string | null | undefined, shelfLifeMonths: number | null | undefined): string | undefined {
+  if (!expirationDate) return expirationDate ?? undefined;
+  if (!shelfLifeMonths || shelfLifeMonths <= 0) return expirationDate;
+  const d = new Date(`${expirationDate}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return expirationDate;
+  const originalDay = d.getDate();
+  d.setMonth(d.getMonth() + shelfLifeMonths);
+  if (d.getDate() !== originalDay) {
+    // Overflowed into the following month (e.g. Nov 30 + 3 months lands on
+    // a month with no 30th) — clamp to the last day of the intended month
+    // instead of silently extending the expiry further than the customer's
+    // shelf-life term actually allows.
+    d.setDate(0);
+  }
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
 }

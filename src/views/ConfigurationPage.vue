@@ -46,6 +46,32 @@
           </ion-item>
         </ion-list>
 
+        <p class="section-label">Display</p>
+        <ion-list class="config-list" lines="full">
+          <ion-item lines="full">
+            <ion-label class="config-label">
+              <h2>Font Size</h2>
+              <p>
+                Adjusts text size across the whole app. Your screen's current size
+                is kept as "Default."
+              </p>
+            </ion-label>
+          </ion-item>
+          <div class="font-size-picker">
+            <button
+              v-for="preset in FONT_SIZE_PRESETS"
+              :key="preset.value"
+              type="button"
+              class="font-size-option"
+              :class="{ 'font-size-option--active': settingsStore.fontSizePreset === preset.value }"
+              @click="settingsStore.setFontSizePreset(preset.value)"
+            >
+              <span class="font-size-glyph" :style="{ fontSize: `${preset.scale * 1.15}rem` }">Aa</span>
+              <span class="font-size-label">{{ preset.label }}</span>
+            </button>
+          </div>
+        </ion-list>
+
         <p class="config-hint">
           These are per-device display preferences — they change what you see in
           the app, never what gets submitted to Business Central.
@@ -61,6 +87,7 @@ import {
   IonList, IonItem, IonLabel, IonToggle,
 } from '@ionic/vue';
 import { useSettingsStore } from '@/stores/settings.store';
+import { FONT_SIZE_PRESETS } from '@/services/settings.service';
 
 const settingsStore = useSettingsStore();
 
@@ -99,6 +126,61 @@ function onTogglePrices(ev: CustomEvent<{ checked: boolean }>): void {
   line-height: 1.4;
   margin: 0;
   padding-inline-end: 12px;
+}
+
+.font-size-picker {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 1px;
+  background: var(--app-border);
+  border-top: 1px solid var(--app-border);
+}
+
+.font-size-option {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  height: 84px;
+  padding: 8px 4px 10px;
+  border: none;
+  background: var(--app-surface);
+  cursor: pointer;
+  transition: background-color 0.15s var(--ease-out-quart);
+  -webkit-tap-highlight-color: transparent;
+}
+
+.font-size-option:active {
+  background: var(--app-surface-alt);
+}
+
+.font-size-option--active {
+  background: var(--app-blue-pale);
+}
+
+.font-size-glyph {
+  color: var(--app-text-muted);
+  font-weight: 700;
+  line-height: 1;
+  transition: color 0.15s var(--ease-out-quart);
+}
+
+.font-size-option--active .font-size-glyph {
+  color: var(--app-blue);
+}
+
+.font-size-label {
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  color: var(--app-text-muted);
+  text-align: center;
+  letter-spacing: var(--tracking-wide);
+}
+
+.font-size-option--active .font-size-label {
+  color: var(--app-blue);
+  font-weight: 700;
 }
 
 .config-hint {

@@ -6,9 +6,19 @@
  */
 const STORAGE_KEY = 'sbic_food_settings_v1';
 
+export type FontSizePreset = 'compact' | 'cozy' | 'default' | 'comfortable' | 'spacious';
+export const FONT_SIZE_PRESETS: { value: FontSizePreset; label: string; scale: number }[] = [
+  { value: 'compact', label: 'Extra Small', scale: 0.85 },
+  { value: 'cozy', label: 'Small', scale: 0.925 },
+  { value: 'default', label: 'Default', scale: 1 },
+  { value: 'comfortable', label: 'Large', scale: 1.1 },
+  { value: 'spacious', label: 'Extra Large', scale: 1.2 },
+];
+
 interface StoredSettings {
   includeShelfLife?: boolean;
   showItemPrices?: boolean;
+  fontSizePreset?: FontSizePreset;
 }
 
 function readSettings(): StoredSettings {
@@ -43,5 +53,12 @@ export const SettingsService = {
   },
   setShowItemPrices(value: boolean): void {
     writeSettings({ showItemPrices: value });
+  },
+
+  getFontSizePreset(): FontSizePreset {
+    return readSettings().fontSizePreset ?? 'default';
+  },
+  setFontSizePreset(value: FontSizePreset): void {
+    writeSettings({ fontSizePreset: value });
   },
 };

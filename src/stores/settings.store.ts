@@ -1,10 +1,11 @@
 import { defineStore } from 'pinia';
 import { ref } from 'vue';
-import { SettingsService } from '@/services/settings.service';
+import { SettingsService, type FontSizePreset } from '@/services/settings.service';
 
 export const useSettingsStore = defineStore('settings', () => {
   const includeShelfLife = ref(SettingsService.getIncludeShelfLife());
   const showItemPrices = ref(SettingsService.getShowItemPrices());
+  const fontSizePreset = ref<FontSizePreset>(SettingsService.getFontSizePreset());
 
   function setIncludeShelfLife(value: boolean): void {
     includeShelfLife.value = value;
@@ -16,10 +17,17 @@ export const useSettingsStore = defineStore('settings', () => {
     SettingsService.setShowItemPrices(value);
   }
 
+  function setFontSizePreset(value: FontSizePreset): void {
+    fontSizePreset.value = value;
+    SettingsService.setFontSizePreset(value);
+  }
+
   return {
     includeShelfLife,
     showItemPrices,
+    fontSizePreset,
     setIncludeShelfLife,
     setShowItemPrices,
+    setFontSizePreset,
   };
 });

@@ -171,7 +171,7 @@ async function openItemSelector(startInScanner = false): Promise<void> {
   await modal.present();
   const { data, role } = await modal.onDidDismiss<{
     item: Item; quantity: number; unitOfMeasureCode: string; expirationDate?: string; lotNo?: string;
-    availableQuantity: number; qtyPerUnitOfMeasure?: number;
+    locationCode?: string; availableQuantity: number; qtyPerUnitOfMeasure?: number;
   }>();
   if (role === 'added' && data) {
     sessionStore.addLine({
@@ -181,6 +181,7 @@ async function openItemSelector(startInScanner = false): Promise<void> {
       unitOfMeasureCode: data.unitOfMeasureCode,
       expirationDate: data.expirationDate,
       lotNo: data.lotNo,
+      locationCode: data.locationCode,
       availableQuantity: data.availableQuantity,
       qtyPerUnitOfMeasure: data.qtyPerUnitOfMeasure,
     });

@@ -54,6 +54,10 @@ export interface ItemLot {
   lotNo?: string;
   expirationDate?: string;
   remainingQuantity: number;
+  /** The lot's own physical location — required on the Sales Line at BC
+   *  posting time for a lot-tracked item, and must match where this
+   *  specific lot's stock actually sits (not a company-wide constant). */
+  locationCode?: string;
 }
 
 /** Per-item Unit of Measure option, sourced from the new RGMC Item Unit Of
@@ -74,6 +78,7 @@ export interface OrderLine {
   unitOfMeasureCode: string;
   expirationDate?: string;
   lotNo?: string;
+  locationCode?: string;
   availableQuantity: number;
   /** Item's Qty. per Unit of Measure for `unitOfMeasureCode` — carried
    *  through so the backend can convert to the item's base UOM when writing
@@ -113,6 +118,7 @@ export interface FoodSalesOrderLinePayload {
   unitOfMeasureCode: string;
   lotNo?: string;
   expirationDate?: string;
+  locationCode?: string;
   qtyPerUnitOfMeasure?: number;
 }
 
@@ -150,6 +156,7 @@ export interface OrderHistoryLine {
   unitOfMeasureCode?: string;
   lotNo?: string;
   expirationDate?: string;
+  locationCode?: string;
 }
 
 /** One order-submission attempt, written to the food app's own Firestore

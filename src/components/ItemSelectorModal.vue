@@ -638,6 +638,7 @@ function confirmAdd(): void {
     unitOfMeasureCode: unitOfMeasureCode.value,
     expirationDate: selectedLot.value?.expirationDate,
     lotNo: selectedLot.value?.lotNo,
+    locationCode: selectedLot.value?.locationCode,
     availableQuantity: availableQuantity.value,
     qtyPerUnitOfMeasure: selectedUom?.qtyPerUnitOfMeasure ?? 1,
   }, 'added');

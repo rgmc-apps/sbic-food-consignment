@@ -157,6 +157,7 @@ async function handleSubmit(): Promise<void> {
     unitOfMeasureCode: l.unitOfMeasureCode,
     lotNo: l.lotNo,
     expirationDate: l.expirationDate,
+    locationCode: l.locationCode,
     qtyPerUnitOfMeasure: l.qtyPerUnitOfMeasure,
   }));
   const historyLines: OrderHistoryLine[] = submitLines;

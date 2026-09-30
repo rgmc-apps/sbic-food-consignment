@@ -48,7 +48,7 @@
           </ion-list>
 
           <div class="ion-padding-horizontal add-item-row">
-            <ion-button expand="block" :disabled="!session.customer" @click="openItemSelector">
+            <ion-button expand="block" :disabled="!session.customer" @click="openItemSelector()">
               <ion-icon :icon="addCircleOutline" slot="start" />
               Add Item
             </ion-button>

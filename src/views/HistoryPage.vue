@@ -44,9 +44,13 @@
               <div slot="content" class="history-detail">
                 <p class="detail-row">Posting Date: {{ formatDate(rec.postingDate) }}</p>
                 <p v-if="rec.userDisplayName" class="detail-row">Submitted By: {{ rec.userDisplayName }}</p>
-                <p v-if="rec.status === 'failed' && rec.errorMessage" class="detail-row detail-row--error">
-                  {{ rec.errorMessage }}
-                </p>
+                <template v-if="rec.status === 'failed' && rec.errorMessage">
+                  <p class="detail-row detail-row--error">{{ rec.errorMessage }}</p>
+                  <ion-button expand="block" fill="clear" color="danger" @click="reportHistoryError(rec)">
+                    <ion-icon :icon="bugOutline" slot="start" />
+                    Report to IT/MIS
+                  </ion-button>
+                </template>
                 <p class="section-label">Order Lines</p>
                 <ion-list class="lines-list" lines="full">
                   <ion-item v-for="(line, i) in rec.lines" :key="i">
@@ -100,16 +104,18 @@ import {
   IonAccordionGroup, IonAccordion, IonItem, IonLabel, IonList,
 } from '@ionic/vue';
 import {
-  timeOutline, checkmarkCircleOutline, closeCircleOutline, chevronBackOutline, chevronForwardOutline,
+  timeOutline, checkmarkCircleOutline, closeCircleOutline, chevronBackOutline, chevronForwardOutline, bugOutline,
 } from 'ionicons/icons';
 import { useAuthStore } from '@/stores/auth.store';
 import { ApiService, ApiError } from '@/services/api.service';
+import { useErrorReporter } from '@/composables/useErrorReporter';
 import { formatDate, isExpiringSoon } from '@/utils/format';
 import type { OrderHistoryRecord } from '@/types';
 
 const PAGE_SIZE = 25;
 
 const authStore = useAuthStore();
+const { openReport } = useErrorReporter();
 
 const records = ref<OrderHistoryRecord[]>([]);
 const loading = ref(false);
@@ -152,6 +158,13 @@ function goNextPage(): void {
 function goPrevPage(): void {
   offset.value = Math.max(0, offset.value - PAGE_SIZE);
   fetchHistory();
+}
+
+function reportHistoryError(rec: OrderHistoryRecord): void {
+  openReport({
+    error: rec.errorMessage,
+    context: `Failed order history entry: ${rec.orderNumber || rec.id}`,
+  });
 }
 
 onMounted(fetchHistory);

@@ -92,7 +92,13 @@
           </ion-list>
         </div>
 
-        <p v-if="submitError" class="submit-error">{{ submitError }}</p>
+        <template v-if="submitError">
+          <p class="submit-error">{{ submitError }}</p>
+          <ion-button expand="block" fill="clear" color="danger" @click="reportSubmitError">
+            <ion-icon :icon="bugOutline" slot="start" />
+            Report to IT/MIS
+          </ion-button>
+        </template>
 
         <div class="ion-padding action-buttons">
           <ion-button expand="block" :disabled="!canSubmit || submitting" @click="handleSubmit">
@@ -132,11 +138,12 @@ import {
   IonCardHeader, IonCardSubtitle, IonCardTitle, IonCardContent, IonItem, IonLabel, IonInput,
   IonList, IonButton, IonSpinner, IonIcon, popoverController,
 } from '@ionic/vue';
-import { checkmarkCircleOutline, createOutline } from 'ionicons/icons';
+import { checkmarkCircleOutline, createOutline, bugOutline } from 'ionicons/icons';
 import { useRouter } from 'vue-router';
 import { useAuthStore } from '@/stores/auth.store';
 import { useSessionStore } from '@/stores/session.store';
 import { useSettingsStore } from '@/stores/settings.store';
+import { useErrorReporter } from '@/composables/useErrorReporter';
 import { ApiService, ApiError } from '@/services/api.service';
 import { formatDate, formatCurrency, isExpiringSoon } from '@/utils/format';
 import { generateId } from '@/utils/id';
@@ -147,11 +154,13 @@ const router = useRouter();
 const authStore = useAuthStore();
 const sessionStore = useSessionStore();
 const settingsStore = useSettingsStore();
+const { openReport } = useErrorReporter();
 const session = computed(() => sessionStore.currentSession);
 
 const orderNumberInput = ref(session.value?.orderNumber ?? '');
 const submitting = ref(false);
 const submitError = ref<string | null>(null);
+const lastSubmitError = ref<unknown>(null);
 
 // Live-only, never cached — loaded once for whatever lines are already on
 // this order, only when the "Display Item Prices" setting is on.
@@ -217,6 +226,7 @@ async function handleSubmit(): Promise<void> {
   const availabilityIssue = await verifyLotAvailability(session.value.lines);
   if (availabilityIssue) {
     submitError.value = availabilityIssue;
+    lastSubmitError.value = availabilityIssue;
     submitting.value = false;
     return;
   }
@@ -265,6 +275,7 @@ async function handleSubmit(): Promise<void> {
   } catch (err) {
     // Nothing was posted — the draft stays intact in localStorage for retry.
     submitError.value = err instanceof ApiError ? err.message : 'Submission failed. Please try again.';
+    lastSubmitError.value = err;
     sessionStore.markFailed(submitError.value);
     ApiService.recordOrderHistory({
       id: generateId(),
@@ -283,6 +294,10 @@ async function handleSubmit(): Promise<void> {
   } finally {
     submitting.value = false;
   }
+}
+
+function reportSubmitError(): void {
+  openReport({ error: lastSubmitError.value, context: 'Order submission failed on Submit Order page' });
 }
 
 function saveDraftAndExit(): void {

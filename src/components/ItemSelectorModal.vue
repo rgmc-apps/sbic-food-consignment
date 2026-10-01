@@ -574,10 +574,36 @@ async function resolveBarcode(code: string): Promise<void> {
   const cached = ItemCatalogService.getItems(authStore.company?.code ?? '');
   let match = cached?.find((i) => i.number.toUpperCase() === term.toUpperCase())
     ?? cached?.find((i) => i.number.toUpperCase().includes(term.toUpperCase()));
+  // The specific Unit of Measure a scanned barcode was assigned to on BC's
+  // Item Reference table (5777) — e.g. a case-pack barcode resolves to a
+  // box/case UOM, not the item's base UOM. Only set when the barcode was
+  // actually found there.
+  let referencedUom: string | undefined;
 
   if (!match) {
-    // Cache miss (or catalog not loaded yet) — try one live lookup before
-    // giving up, same cache-first-then-live pattern the rest of this modal uses.
+    // A real barcode (GTIN/EAN/vendor code) is almost never the BC Item No.
+    // itself — look it up against BC's Item Reference table before falling
+    // back to a plain number/description search.
+    try {
+      const refs = await ApiService.getItemReferences(term);
+      const ref = refs.find((r) => r.referenceType === 'Bar Code') ?? refs[0];
+      if (ref?.itemNo) {
+        referencedUom = ref.unitOfMeasure || undefined;
+        match = cached?.find((i) => i.number.toUpperCase() === ref.itemNo.toUpperCase());
+        if (!match) {
+          const page = await ApiService.getItems({ search: ref.itemNo, limit: 5 });
+          match = page.value.find((i) => i.number.toUpperCase() === ref.itemNo!.toUpperCase());
+        }
+      }
+    } catch {
+      // ignore — falls through to the plain item search below
+    }
+  }
+
+  if (!match) {
+    // Cache miss and no Item Reference match — try one live number/description
+    // lookup before giving up, same cache-first-then-live pattern the rest of
+    // this modal uses.
     try {
       const page = await ApiService.getItems({ search: term, limit: 5 });
       match = page.value.find((i) => i.number.toUpperCase() === term.toUpperCase()) ?? page.value[0];
@@ -588,7 +614,7 @@ async function resolveBarcode(code: string): Promise<void> {
 
   if (match) {
     viewMode.value = 'list';
-    await pickItem(match);
+    await pickItem(match, referencedUom);
     return;
   }
 
@@ -663,7 +689,7 @@ function adjustQty(delta: number): void {
   quantity.value = Math.min(Math.max(1, quantity.value + delta), Math.max(1, availableQuantity.value));
 }
 
-async function pickItem(item: Item): Promise<void> {
+async function pickItem(item: Item, preferredUomCode?: string): Promise<void> {
   selectedItem.value = item;
   loadingDetail.value = true;
   quantity.value = 1;
@@ -680,7 +706,12 @@ async function pickItem(item: Item): Promise<void> {
     ]);
     lots.value = lotsPage.value;
     uomOptions.value = uomList;
-    unitOfMeasureCode.value = item.baseUnitOfMeasureCode || uomList[0]?.code || '';
+    // A barcode scanned via the Item Reference table (5777) may be tied to a
+    // specific non-base UOM (e.g. a case/box barcode) — honor that over the
+    // item's base UOM default, but only if it's actually a valid UOM for
+    // this item.
+    const preferred = preferredUomCode && uomList.some((u) => u.code === preferredUomCode) ? preferredUomCode : undefined;
+    unitOfMeasureCode.value = preferred || item.baseUnitOfMeasureCode || uomList[0]?.code || '';
   } catch {
     lots.value = [];
     uomOptions.value = [];

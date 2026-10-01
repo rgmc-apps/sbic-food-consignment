@@ -7,6 +7,7 @@ import type {
   FoodSalesOrderResult,
   Item,
   ItemLot,
+  ItemReference,
   ItemUnitOfMeasure,
   OrderHistoryRecord,
   Page,
@@ -145,6 +146,14 @@ export const ApiService = {
   async getItemUnitsOfMeasure(itemNo: string): Promise<ItemUnitOfMeasure[]> {
     const res = await apiClient.get(`/food/items/${encodeURIComponent(itemNo)}/uom`);
     return toPage<ItemUnitOfMeasure>(res.data).value;
+  },
+
+  /** Resolves a scanned barcode via BC's Item Reference table (5777) — may
+   *  return more than one row (a code can be referenced under more than one
+   *  type), so callers get the full list and pick the best match. */
+  async getItemReferences(code: string): Promise<ItemReference[]> {
+    const res = await apiClient.get(`/food/items/by-reference/${encodeURIComponent(code)}`);
+    return toPage<ItemReference>(res.data).value;
   },
 
   /** Live unit price for a set of items, keyed by item number — never

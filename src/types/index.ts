@@ -73,6 +73,18 @@ export interface ItemUnitOfMeasure {
   qtyPerUnitOfMeasure: number;
 }
 
+/** A scanned-barcode lookup row from BC's Item Reference table (5777) —
+ *  resolves a scanned code to its item and the specific Unit of Measure
+ *  that barcode was assigned to (which may differ from the item's base UOM). */
+export interface ItemReference {
+  itemNo: string;
+  referenceNo: string;
+  referenceType?: string;
+  referenceTypeNo?: string;
+  unitOfMeasure?: string;
+  description?: string;
+}
+
 /** One line the user has added to the current order. */
 export interface OrderLine {
   id: string;

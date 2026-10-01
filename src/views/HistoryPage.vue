@@ -43,6 +43,7 @@
 
               <div slot="content" class="history-detail">
                 <p class="detail-row">Posting Date: {{ formatDate(rec.postingDate) }}</p>
+                <p v-if="rec.userDisplayName" class="detail-row">Submitted By: {{ rec.userDisplayName }}</p>
                 <p v-if="rec.status === 'failed' && rec.errorMessage" class="detail-row detail-row--error">
                   {{ rec.errorMessage }}
                 </p>

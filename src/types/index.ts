@@ -130,6 +130,7 @@ export interface FoodSalesOrderPayload {
   customerNumber: string;
   postingDate: string;
   orderNumber: string;
+  submittedBy?: string;
   lines: FoodSalesOrderLinePayload[];
 }
 

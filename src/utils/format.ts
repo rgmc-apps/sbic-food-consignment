@@ -5,6 +5,16 @@ export function formatDate(value: string | null | undefined): string {
   return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
 }
 
+/** Short, year-less date for use inside an already-labeled month group
+ *  (e.g. "Sep 1") — the month/year is established by the group header,
+ *  so repeating it per entry would be redundant. */
+export function formatShortDate(value: string | null | undefined): string {
+  if (!value) return '—';
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return value;
+  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+}
+
 export function formatCurrency(value: number | null | undefined): string {
   if (value == null || Number.isNaN(value)) return '—';
   return new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP' }).format(value);

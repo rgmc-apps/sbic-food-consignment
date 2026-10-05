@@ -10,9 +10,20 @@ import { IonApp, IonRouterOutlet, toastController } from '@ionic/vue';
 import { closeOutline } from 'ionicons/icons';
 import { useNetworkStatus } from '@/composables/useNetworkStatus';
 import { useSessionStore } from '@/stores/session.store';
+import { useSettingsStore } from '@/stores/settings.store';
 
 const { isOnline } = useNetworkStatus();
 const sessionStore = useSessionStore();
+const settingsStore = useSettingsStore();
+
+// Every --text-* token is redefined per preset under [data-font-size] in
+// variables.css — setting this attribute is the entire mechanism, nothing
+// else needs to react to a change here.
+watch(
+  () => settingsStore.fontSizePreset,
+  (preset) => { document.documentElement.dataset.fontSize = preset; },
+  { immediate: true },
+);
 
 // This app does no offline catalog work — going offline just means "the next
 // network call will fail". The only thing that survives an outage is whatever

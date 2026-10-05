@@ -124,7 +124,11 @@
   --ease-out-quart: cubic-bezier(0.25, 1, 0.5, 1);
   --ease-out-expo:  cubic-bezier(0.16, 1, 0.3, 1);
 
-  /* Type scale */
+  /* Type scale — the "Default" font-size preset (Configuration page). Every
+     other preset overrides these same custom properties below, scoped under
+     [data-font-size="..."] on the document root, so every component that
+     already reads var(--text-*) picks up the active preset automatically —
+     nothing keyed to a specific component needs to change. */
   --text-2xs:  0.625rem;
   --text-xs:   0.6875rem;
   --text-sm:   0.75rem;
@@ -148,6 +152,60 @@
   --app-warn-bg:   #fff8e1;
   --app-warn-text: #7a6000;
   --app-error-border: #ffd7d7;
+}
+
+/* Font-size presets (Configuration page → "Font Size") — each scales every
+   --text-* token by a fixed factor off the "Default" values above, so the
+   two smaller and two larger presets stay proportional to each other rather
+   than just nudging one size up. Applied via [data-font-size] on <html>
+   (see App.vue) — "default" needs no override block, it's just the base
+   :root values with no attribute-scoped rule to beat it. */
+:root[data-font-size="compact"] {  /* ×0.85 */
+  --text-2xs:  0.531rem;
+  --text-xs:   0.584rem;
+  --text-sm:   0.638rem;
+  --text-base: 0.744rem;
+  --text-md:   0.85rem;
+  --text-lg:   0.956rem;
+  --text-xl:   1.169rem;
+  --text-2xl:  1.381rem;
+  --text-hero: 1.488rem;
+}
+
+:root[data-font-size="cozy"] {  /* ×0.925 */
+  --text-2xs:  0.578rem;
+  --text-xs:   0.636rem;
+  --text-sm:   0.694rem;
+  --text-base: 0.809rem;
+  --text-md:   0.925rem;
+  --text-lg:   1.041rem;
+  --text-xl:   1.272rem;
+  --text-2xl:  1.503rem;
+  --text-hero: 1.619rem;
+}
+
+:root[data-font-size="comfortable"] {  /* ×1.1 */
+  --text-2xs:  0.688rem;
+  --text-xs:   0.756rem;
+  --text-sm:   0.825rem;
+  --text-base: 0.963rem;
+  --text-md:   1.1rem;
+  --text-lg:   1.238rem;
+  --text-xl:   1.513rem;
+  --text-2xl:  1.788rem;
+  --text-hero: 1.925rem;
+}
+
+:root[data-font-size="spacious"] {  /* ×1.2 */
+  --text-2xs:  0.75rem;
+  --text-xs:   0.825rem;
+  --text-sm:   0.9rem;
+  --text-base: 1.05rem;
+  --text-md:   1.2rem;
+  --text-lg:   1.35rem;
+  --text-xl:   1.65rem;
+  --text-2xl:  1.95rem;
+  --text-hero: 2.1rem;
 }
 
 /* Global typography */
@@ -429,6 +487,37 @@ ion-spinner {
   letter-spacing: var(--tracking-wide);
   text-transform: uppercase;
   vertical-align: middle;
+}
+
+/* Inline "edit expiration date" affordance — same small pencil button next
+   to the expiry line on Scan's Order Lines and Submit's review, so either
+   spot lets a user correct a lot's expiry without removing/re-adding it. */
+.expiry-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.expiry-edit-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--app-text-muted);
+  font-size: 14px;
+  cursor: pointer;
+  transition: background-color 0.15s var(--ease-out-quart), color 0.15s var(--ease-out-quart);
+  -webkit-tap-highlight-color: transparent;
+}
+
+.expiry-edit-btn:active {
+  background: var(--app-blue-pale);
+  color: var(--app-blue);
 }
 
 .section-label {

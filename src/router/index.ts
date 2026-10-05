@@ -17,6 +17,7 @@ const routes: RouteRecordRaw[] = [
     ],
   },
   { path: '/app/submit', component: () => import('@/views/SubmitPage.vue') },
+  { path: '/app/settings', component: () => import('@/views/ConfigurationPage.vue') },
 ];
 
 const router = createRouter({

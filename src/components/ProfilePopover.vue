@@ -18,6 +18,16 @@
       <span>View Profile</span>
     </button>
 
+    <button type="button" class="popover-item" @click="handleOpenConfig">
+      <ion-icon :icon="settingsOutline" />
+      <span>Configuration</span>
+    </button>
+
+    <button type="button" class="popover-item" @click="handleReportIssue">
+      <ion-icon :icon="bugOutline" />
+      <span>Report to IT/MIS</span>
+    </button>
+
     <button type="button" class="popover-item popover-item--danger" @click="handleSignOut">
       <ion-icon :icon="logOutOutline" />
       <span>Sign Out</span>
@@ -32,13 +42,17 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { IonIcon, popoverController } from '@ionic/vue';
-import { personOutline, logOutOutline } from 'ionicons/icons';
+import { useRouter } from 'vue-router';
+import { personOutline, logOutOutline, settingsOutline, bugOutline } from 'ionicons/icons';
 import { useAuthStore } from '@/stores/auth.store';
 import { useProfile } from '@/composables/useProfile';
+import { useErrorReporter } from '@/composables/useErrorReporter';
 import { getInitials } from '@/utils/initials';
 
+const router = useRouter();
 const authStore = useAuthStore();
 const { openProfileModal, signOut } = useProfile();
+const { openReport } = useErrorReporter();
 
 const initials = computed(() => getInitials(authStore.user?.displayName));
 // Global const injected at build time by vite.config.ts (see env.d.ts) — the
@@ -50,8 +64,18 @@ async function handleViewProfile(): Promise<void> {
   await openProfileModal();
 }
 
+async function handleOpenConfig(): Promise<void> {
+  await popoverController.dismiss();
+  router.push('/app/settings');
+}
+
 function handleSignOut(): void {
   signOut(() => popoverController.dismiss());
+}
+
+async function handleReportIssue(): Promise<void> {
+  await popoverController.dismiss();
+  openReport({ context: 'Manual bug report from ' + window.location.pathname });
 }
 </script>
 

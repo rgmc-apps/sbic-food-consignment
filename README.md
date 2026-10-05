@@ -305,13 +305,16 @@ All endpoints live under the `/food` prefix on `rgmc-bc-api` and are **always li
 
 ## <span style="color:#2461A8">💾 Data & Caching Strategy</span>
 
-This app stores exactly three things in `localStorage` — and nothing else. There is no IndexedDB, no service worker cache, and no catalog of items/customers/prices kept on the device.
+This app stores a small, fixed set of things in `localStorage` — and nothing else. There is no IndexedDB and no service worker cache. Quantity, lot number, expiration date, and pricing are never part of any of these keys — they are always fetched live.
 
 | Key | Written by | What it holds | Refreshed |
 |---|---|---|---|
 | `sbic_food_auth_v1` | `draft.service.ts` (`setAuth`) | The signed-in Contact, so a page refresh doesn't force a re-login | On every successful login; cleared on logout |
 | `sbic_food_company_v1` | `draft.service.ts` (`setCompanyCode`) | The selected company code, restored on boot | On login; cleared on logout |
 | `sbic_food_drafts_v1` | `draft.service.ts` (`saveDraft` / `removeDraft`) | Every not-yet-submitted order (customer, posting date, order number, lines) | On nearly every field change in Scan, and on navigating away — this is the app's **only** answer to a network outage: work in progress survives, catalog data does not |
+| `sbic_food_item_catalog_v1` | `item-catalog.service.ts` | Static item fields only (number/description/base UOM) — see Design Principle #2 | Preloaded on login, refreshed every 6h |
+| `sbic_food_customer_catalog_v1` | `customer-catalog.service.ts` | Static chain=true customer fields only (number/name/address/etc.) | Preloaded on login, refreshed every 6h |
+| `sbic_food_settings_v1` | `settings.service.ts` | Per-device display preferences only (Include Item Shelf Life, Display Item Prices) — never affects what's actually submitted to BC | On every toggle in Configuration |
 
 > 💡 Every customer, item, lot, and unit-of-measure list you see on screen was fetched moments ago and will be fetched again the next time that screen is shown — there is no "last synced" timestamp anywhere in this app, because there is nothing to keep in sync.
 

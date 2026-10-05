@@ -63,23 +63,42 @@
                   <span class="line-detail-label">Quantity</span>
                   <span>{{ line.quantity }} {{ line.unitOfMeasureCode }}</span>
                 </p>
-                <p class="line-detail-row">
+                <p class="line-detail-row expiry-row">
                   <span class="line-detail-label">Expiry Date</span>
                   <span>
                     {{ line.expirationDate ? formatDate(line.expirationDate) : '—' }}
                     <span v-if="isExpiringSoon(line.expirationDate)" class="expiry-badge">Expiring soon</span>
                   </span>
+                  <button
+                    v-if="line.expirationDate"
+                    type="button"
+                    class="expiry-edit-btn"
+                    aria-label="Edit expiration date"
+                    @click.stop="openExpiryEditor($event, line)"
+                  >
+                    <ion-icon :icon="createOutline" />
+                  </button>
                 </p>
                 <p v-if="line.lotNo" class="line-detail-row">
                   <span class="line-detail-label">Lot No.</span>
                   <span>{{ line.lotNo }}</span>
+                </p>
+                <p v-if="settingsStore.showItemPrices && priceMap[line.itemNumber] != null" class="line-detail-row">
+                  <span class="line-detail-label">Price</span>
+                  <span>{{ formatCurrency(priceMap[line.itemNumber]) }}</span>
                 </p>
               </ion-label>
             </ion-item>
           </ion-list>
         </div>
 
-        <p v-if="submitError" class="submit-error">{{ submitError }}</p>
+        <template v-if="submitError">
+          <p class="submit-error">{{ submitError }}</p>
+          <ion-button expand="block" fill="clear" color="danger" @click="reportSubmitError">
+            <ion-icon :icon="bugOutline" slot="start" />
+            Report to IT/MIS
+          </ion-button>
+        </template>
 
         <div class="ion-padding action-buttons">
           <ion-button expand="block" :disabled="!canSubmit || submitting" @click="handleSubmit">
@@ -117,35 +136,100 @@ import { ref, computed } from 'vue';
 import {
   IonPage, IonHeader, IonToolbar, IonTitle, IonButtons, IonBackButton, IonContent, IonCard,
   IonCardHeader, IonCardSubtitle, IonCardTitle, IonCardContent, IonItem, IonLabel, IonInput,
-  IonList, IonButton, IonSpinner, IonIcon,
+  IonList, IonButton, IonSpinner, IonIcon, popoverController,
 } from '@ionic/vue';
-import { checkmarkCircleOutline } from 'ionicons/icons';
+import { checkmarkCircleOutline, createOutline, bugOutline } from 'ionicons/icons';
 import { useRouter } from 'vue-router';
 import { useAuthStore } from '@/stores/auth.store';
 import { useSessionStore } from '@/stores/session.store';
+import { useSettingsStore } from '@/stores/settings.store';
+import { useErrorReporter } from '@/composables/useErrorReporter';
 import { ApiService, ApiError } from '@/services/api.service';
-import { formatDate, isExpiringSoon } from '@/utils/format';
+import { formatDate, formatCurrency, isExpiringSoon } from '@/utils/format';
 import { generateId } from '@/utils/id';
-import type { FoodSalesOrderResult, OrderHistoryLine } from '@/types';
+import DatePickerPopover from '@/components/DatePickerPopover.vue';
+import type { FoodSalesOrderResult, OrderHistoryLine, OrderLine } from '@/types';
 
 const router = useRouter();
 const authStore = useAuthStore();
 const sessionStore = useSessionStore();
+const settingsStore = useSettingsStore();
+const { openReport } = useErrorReporter();
 const session = computed(() => sessionStore.currentSession);
 
 const orderNumberInput = ref(session.value?.orderNumber ?? '');
 const submitting = ref(false);
 const submitError = ref<string | null>(null);
+const lastSubmitError = ref<unknown>(null);
+
+// Live-only, never cached — loaded once for whatever lines are already on
+// this order, only when the "Display Item Prices" setting is on.
+const priceMap = ref<Record<string, number>>({});
+if (settingsStore.showItemPrices && session.value?.lines.length) {
+  ApiService.getItemPrices(session.value.lines.map((l) => l.itemNumber))
+    .then((map) => { priceMap.value = map; })
+    .catch(() => { /* ignore — prices just won't show */ });
+}
 const result = ref<FoodSalesOrderResult | null>(null);
 
 const canSubmit = computed(() =>
   !!session.value?.customer && !!session.value.lines.length && !!orderNumberInput.value.trim(),
 );
 
+async function openExpiryEditor(ev: Event, line: OrderLine): Promise<void> {
+  const popover = await popoverController.create({
+    component: DatePickerPopover,
+    componentProps: { modelValue: line.expirationDate },
+    event: ev,
+    side: 'bottom',
+    alignment: 'start',
+    cssClass: 'date-picker-popover',
+  });
+  await popover.present();
+  const { data, role } = await popover.onDidDismiss<string>();
+  if (role === 'picked' && data) {
+    sessionStore.updateLineExpirationDate(line.id, data);
+  }
+}
+
+// Third and final live re-check (after item selection and adding to the
+// order in ItemSelectorModal) — right before the order is actually created
+// in BC, so a second concurrent user's order submitted in the gap since
+// this session's lines were added doesn't get silently oversold. Returns
+// the first line found short, or null if every lot-tracked line still has
+// enough remaining quantity.
+async function verifyLotAvailability(lines: OrderLine[]): Promise<string | null> {
+  const lotLines = lines.filter((l) => l.lotNo);
+  if (!lotLines.length) return null;
+  const results = await Promise.all(lotLines.map(async (line) => {
+    try {
+      const page = await ApiService.getItemLots(line.itemNumber, { limit: 100 });
+      const fresh = page.value.find((l) => l.lotNo === line.lotNo && l.locationCode === line.locationCode);
+      const freshQty = fresh?.remainingQuantity ?? 0;
+      if (line.quantity > freshQty) {
+        return `${line.description || line.itemNumber}: only ${freshQty} left for lot ${line.lotNo} now — someone else may have just used it. Adjust the quantity and try again.`;
+      }
+    } catch {
+      // Live check failed (network hiccup) — don't block submission on it;
+      // BC's own FEFO-capped lot availability is the final authority.
+    }
+    return null;
+  }));
+  return results.find((r): r is string => r !== null) ?? null;
+}
+
 async function handleSubmit(): Promise<void> {
   if (!session.value?.customer || !canSubmit.value) return;
   submitting.value = true;
   submitError.value = null;
+
+  const availabilityIssue = await verifyLotAvailability(session.value.lines);
+  if (availabilityIssue) {
+    submitError.value = availabilityIssue;
+    lastSubmitError.value = availabilityIssue;
+    submitting.value = false;
+    return;
+  }
 
   const customer = session.value.customer;
   const postingDate = session.value.postingDate;
@@ -157,6 +241,7 @@ async function handleSubmit(): Promise<void> {
     unitOfMeasureCode: l.unitOfMeasureCode,
     lotNo: l.lotNo,
     expirationDate: l.expirationDate,
+    locationCode: l.locationCode,
     qtyPerUnitOfMeasure: l.qtyPerUnitOfMeasure,
   }));
   const historyLines: OrderHistoryLine[] = submitLines;
@@ -166,6 +251,7 @@ async function handleSubmit(): Promise<void> {
       customerNumber: customer.number,
       postingDate,
       orderNumber,
+      ...(authStore.user?.displayName ? { submittedBy: authStore.user.displayName } : {}),
       lines: submitLines,
     });
     result.value = res;
@@ -189,6 +275,7 @@ async function handleSubmit(): Promise<void> {
   } catch (err) {
     // Nothing was posted — the draft stays intact in localStorage for retry.
     submitError.value = err instanceof ApiError ? err.message : 'Submission failed. Please try again.';
+    lastSubmitError.value = err;
     sessionStore.markFailed(submitError.value);
     ApiService.recordOrderHistory({
       id: generateId(),
@@ -207,6 +294,10 @@ async function handleSubmit(): Promise<void> {
   } finally {
     submitting.value = false;
   }
+}
+
+function reportSubmitError(): void {
+  openReport({ error: lastSubmitError.value, context: 'Order submission failed on Submit Order page' });
 }
 
 function saveDraftAndExit(): void {

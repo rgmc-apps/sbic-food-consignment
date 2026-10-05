@@ -37,6 +37,10 @@ export interface Customer {
   phoneNumber?: string;
   email?: string;
   chain?: boolean;
+  /** Months of shelf life this customer requires — from BC's Customer table
+   *  "Prod Shelf Life" field. Used only when the "Include Item Shelf Life"
+   *  setting is on, to extend a picked lot's expiration date. */
+  prodShelfLife?: number;
 }
 
 /** BC Item — catalog fields only, no brand/family filter for this app. */
@@ -54,6 +58,10 @@ export interface ItemLot {
   lotNo?: string;
   expirationDate?: string;
   remainingQuantity: number;
+  /** The lot's own physical location — required on the Sales Line at BC
+   *  posting time for a lot-tracked item, and must match where this
+   *  specific lot's stock actually sits (not a company-wide constant). */
+  locationCode?: string;
 }
 
 /** Per-item Unit of Measure option, sourced from the new RGMC Item Unit Of
@@ -65,6 +73,18 @@ export interface ItemUnitOfMeasure {
   qtyPerUnitOfMeasure: number;
 }
 
+/** A scanned-barcode lookup row from BC's Item Reference table (5777) —
+ *  resolves a scanned code to its item and the specific Unit of Measure
+ *  that barcode was assigned to (which may differ from the item's base UOM). */
+export interface ItemReference {
+  itemNo: string;
+  referenceNo: string;
+  referenceType?: string;
+  referenceTypeNo?: string;
+  unitOfMeasure?: string;
+  description?: string;
+}
+
 /** One line the user has added to the current order. */
 export interface OrderLine {
   id: string;
@@ -74,6 +94,7 @@ export interface OrderLine {
   unitOfMeasureCode: string;
   expirationDate?: string;
   lotNo?: string;
+  locationCode?: string;
   availableQuantity: number;
   /** Item's Qty. per Unit of Measure for `unitOfMeasureCode` — carried
    *  through so the backend can convert to the item's base UOM when writing
@@ -113,6 +134,7 @@ export interface FoodSalesOrderLinePayload {
   unitOfMeasureCode: string;
   lotNo?: string;
   expirationDate?: string;
+  locationCode?: string;
   qtyPerUnitOfMeasure?: number;
 }
 
@@ -120,6 +142,7 @@ export interface FoodSalesOrderPayload {
   customerNumber: string;
   postingDate: string;
   orderNumber: string;
+  submittedBy?: string;
   lines: FoodSalesOrderLinePayload[];
 }
 
@@ -150,6 +173,7 @@ export interface OrderHistoryLine {
   unitOfMeasureCode?: string;
   lotNo?: string;
   expirationDate?: string;
+  locationCode?: string;
 }
 
 /** One order-submission attempt, written to the food app's own Firestore

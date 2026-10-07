@@ -134,10 +134,12 @@ export const ApiService = {
     return toPage<Item>(res.data);
   },
 
-  /** Available lots for one item, oldest expiration first (live). */
-  async getItemLots(itemNo: string, opts: { limit?: number; offset?: number } = {}): Promise<Page<ItemLot>> {
+  /** Available lots for one item, oldest expiration first (live). Pass the
+   *  selected customer's locationCode so FEFO only considers stock sitting
+   *  in that customer's own location. */
+  async getItemLots(itemNo: string, opts: { limit?: number; offset?: number; locationCode?: string } = {}): Promise<Page<ItemLot>> {
     const res = await apiClient.get(`/food/items/${encodeURIComponent(itemNo)}/lots`, {
-      params: { limit: opts.limit ?? 50, offset: opts.offset ?? 0 },
+      params: { limit: opts.limit ?? 50, offset: opts.offset ?? 0, locationCode: opts.locationCode || undefined },
     });
     return toPage<ItemLot>(res.data);
   },

@@ -701,7 +701,7 @@ async function pickItem(item: Item, preferredUomCode?: string): Promise<void> {
     // the order) where lot availability is re-verified against BC, so a
     // second concurrent user's already-committed order is reflected here.
     const [lotsPage, uomList] = await Promise.all([
-      ApiService.getItemLots(item.number, { limit: LOTS_FETCH_LIMIT }),
+      ApiService.getItemLots(item.number, { limit: LOTS_FETCH_LIMIT, locationCode: sessionStore.currentSession?.customer?.locationCode }),
       ApiService.getItemUnitsOfMeasure(item.number),
     ]);
     lots.value = lotsPage.value;
@@ -737,7 +737,7 @@ async function confirmAdd(): Promise<void> {
   if (lot?.lotNo) {
     verifyingAvailability.value = true;
     try {
-      const freshPage = await ApiService.getItemLots(item.number, { limit: LOTS_FETCH_LIMIT });
+      const freshPage = await ApiService.getItemLots(item.number, { limit: LOTS_FETCH_LIMIT, locationCode: sessionStore.currentSession?.customer?.locationCode });
       const freshLot = freshPage.value.find((l) => l.lotNo === lot.lotNo && l.locationCode === lot.locationCode);
       const freshQty = freshLot?.remainingQuantity ?? 0;
       if (quantity.value > freshQty) {

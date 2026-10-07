@@ -252,6 +252,7 @@ async function handleSubmit(): Promise<void> {
       postingDate,
       orderNumber,
       ...(authStore.user?.displayName ? { submittedBy: authStore.user.displayName } : {}),
+      ...(customer.locationCode ? { locationCode: customer.locationCode } : {}),
       lines: submitLines,
     });
     result.value = res;

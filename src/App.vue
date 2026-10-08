@@ -11,10 +11,14 @@ import { closeOutline } from 'ionicons/icons';
 import { useNetworkStatus } from '@/composables/useNetworkStatus';
 import { useSessionStore } from '@/stores/session.store';
 import { useSettingsStore } from '@/stores/settings.store';
+import { useAppUpdateStore } from '@/stores/appUpdate.store';
 
 const { isOnline } = useNetworkStatus();
 const sessionStore = useSessionStore();
 const settingsStore = useSettingsStore();
+const appUpdateStore = useAppUpdateStore();
+
+appUpdateStore.start();
 
 // Every --text-* token is redefined per preset under [data-font-size] in
 // variables.css — setting this attribute is the entire mechanism, nothing
@@ -69,5 +73,28 @@ watch(isOnline, async (online) => {
     await toast.present();
   }
   prevOnline = online;
+});
+
+// Same "impossible to miss, dismissible, duration: 0" toast idiom as the
+// offline notice above — a stale tab won't self-correct (vue-router never
+// does a real navigation back to index.html), so this has to stay up until
+// the user acts on it or explicitly dismisses it, not just flash by.
+let updateToast: HTMLIonToastElement | null = null;
+
+watch(() => appUpdateStore.updateAvailable, async (available) => {
+  if (!available || updateToast) return;
+  updateToast = await toastController.create({
+    message: 'A new version of this app is available.',
+    duration: 0,
+    position: 'top',
+    cssClass: 'offline-toast',
+    color: 'dark',
+    buttons: [
+      { text: 'Update', handler: () => appUpdateStore.applyUpdate() },
+      { icon: closeOutline, role: 'cancel' },
+    ],
+  });
+  updateToast.addEventListener('didDismiss', () => { updateToast = null; }, { once: true });
+  await updateToast.present();
 });
 </script>

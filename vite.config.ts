@@ -1,4 +1,4 @@
-import { defineConfig, loadEnv } from 'vite';
+import { defineConfig, loadEnv, type Plugin } from 'vite';
 import vue from '@vitejs/plugin-vue';
 import { fileURLToPath, URL } from 'node:url';
 import { execSync } from 'node:child_process';
@@ -25,15 +25,30 @@ function getBuildId(): string {
   return sha ? `${sha} · ${timestamp}` : timestamp;
 }
 
+// Stamps the build id onto the served index.html itself (rather than a
+// separate version.json) so the in-app update check can reuse the exact same
+// no-store, no-cache response nginx already serves for "/" — one fetch, no
+// new cacheable endpoint to get wrong. appUpdate.store.ts fetches "/" and
+// reads this tag back out to compare against the build the running tab loaded.
+function buildMetaPlugin(buildId: string): Plugin {
+  return {
+    name: 'app-build-meta',
+    transformIndexHtml(html) {
+      return html.replace('</head>', `    <meta name="app-build" content="${buildId}">\n  </head>`);
+    },
+  };
+}
+
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
   const proxyTarget = env.VITE_API_BASE_URL;
+  const buildId = getBuildId();
 
   return {
-    plugins: [vue()],
+    plugins: [vue(), buildMetaPlugin(buildId)],
     define: {
       __APP_VERSION__: JSON.stringify(APP_VERSION),
-      __APP_BUILD__: JSON.stringify(getBuildId()),
+      __APP_BUILD__: JSON.stringify(buildId),
     },
     build: {
       rollupOptions: {

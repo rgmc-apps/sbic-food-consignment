@@ -28,6 +28,17 @@
       <span>Report to IT/MIS</span>
     </button>
 
+    <button
+      type="button"
+      class="popover-item"
+      :class="{ 'popover-item--highlight': appUpdateStore.updateAvailable }"
+      @click="handleUpdate"
+    >
+      <ion-icon :icon="appUpdateStore.updateAvailable ? cloudDownloadOutline : refreshOutline" />
+      <span>{{ appUpdateStore.updateAvailable ? 'Update Available' : 'Check for Updates' }}</span>
+      <span v-if="appUpdateStore.updateAvailable" class="popover-item-dot" />
+    </button>
+
     <button type="button" class="popover-item popover-item--danger" @click="handleSignOut">
       <ion-icon :icon="logOutOutline" />
       <span>Sign Out</span>
@@ -41,16 +52,18 @@
 
 <script setup lang="ts">
 import { computed } from 'vue';
-import { IonIcon, popoverController } from '@ionic/vue';
+import { IonIcon, popoverController, toastController } from '@ionic/vue';
 import { useRouter } from 'vue-router';
-import { personOutline, logOutOutline, settingsOutline, bugOutline } from 'ionicons/icons';
+import { personOutline, logOutOutline, settingsOutline, bugOutline, refreshOutline, cloudDownloadOutline } from 'ionicons/icons';
 import { useAuthStore } from '@/stores/auth.store';
+import { useAppUpdateStore } from '@/stores/appUpdate.store';
 import { useProfile } from '@/composables/useProfile';
 import { useErrorReporter } from '@/composables/useErrorReporter';
 import { getInitials } from '@/utils/initials';
 
 const router = useRouter();
 const authStore = useAuthStore();
+const appUpdateStore = useAppUpdateStore();
 const { openProfileModal, signOut } = useProfile();
 const { openReport } = useErrorReporter();
 
@@ -76,6 +89,29 @@ function handleSignOut(): void {
 async function handleReportIssue(): Promise<void> {
   await popoverController.dismiss();
   openReport({ context: 'Manual bug report from ' + window.location.pathname });
+}
+
+// A known update reloads immediately. Otherwise this re-checks on the spot
+// (the background poll runs every 10 minutes — a user chasing "I'm not
+// seeing a change I was told shipped" shouldn't have to wait that out) and
+// only reloads if that check actually finds a newer build, rather than
+// blindly refreshing a tab that's already current.
+async function handleUpdate(): Promise<void> {
+  await popoverController.dismiss();
+  if (!appUpdateStore.updateAvailable) {
+    await appUpdateStore.checkNow();
+  }
+  if (appUpdateStore.updateAvailable) {
+    appUpdateStore.applyUpdate();
+    return;
+  }
+  const toast = await toastController.create({
+    message: "You're already on the latest version.",
+    duration: 2500,
+    position: 'top',
+    color: 'medium',
+  });
+  await toast.present();
 }
 </script>
 
@@ -175,6 +211,20 @@ async function handleReportIssue(): Promise<void> {
 
 .popover-item--danger ion-icon {
   color: var(--ion-color-danger);
+}
+
+.popover-item--highlight,
+.popover-item--highlight ion-icon {
+  color: var(--app-blue);
+}
+
+.popover-item-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ion-color-warning);
+  margin-inline-start: auto;
+  flex-shrink: 0;
 }
 
 .popover-build {

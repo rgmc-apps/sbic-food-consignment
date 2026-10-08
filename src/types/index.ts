@@ -41,6 +41,11 @@ export interface Customer {
    *  "Prod Shelf Life" field. Used only when the "Include Item Shelf Life"
    *  setting is on, to extend a picked lot's expiration date. */
   prodShelfLife?: number;
+  /** This customer's default BC Location Code (Customer table "Location
+   *  Code" field) — carried onto the Sales Header's Location Code when an
+   *  order is submitted for them, so stock is drawn from/posted to the
+   *  location the customer is actually set up for. */
+  locationCode?: string;
 }
 
 /** BC Item — catalog fields only, no brand/family filter for this app. */
@@ -143,6 +148,9 @@ export interface FoodSalesOrderPayload {
   postingDate: string;
   orderNumber: string;
   submittedBy?: string;
+  /** The Sales Header's Location Code — set from the selected customer's own
+   *  locationCode (see Customer.locationCode), not user-entered. */
+  locationCode?: string;
   lines: FoodSalesOrderLinePayload[];
 }
 

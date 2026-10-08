@@ -198,12 +198,12 @@ async function openExpiryEditor(ev: Event, line: OrderLine): Promise<void> {
 // this session's lines were added doesn't get silently oversold. Returns
 // the first line found short, or null if every lot-tracked line still has
 // enough remaining quantity.
-async function verifyLotAvailability(lines: OrderLine[]): Promise<string | null> {
+async function verifyLotAvailability(lines: OrderLine[], locationCode?: string): Promise<string | null> {
   const lotLines = lines.filter((l) => l.lotNo);
   if (!lotLines.length) return null;
   const results = await Promise.all(lotLines.map(async (line) => {
     try {
-      const page = await ApiService.getItemLots(line.itemNumber, { limit: 100 });
+      const page = await ApiService.getItemLots(line.itemNumber, { limit: 100, locationCode });
       const fresh = page.value.find((l) => l.lotNo === line.lotNo && l.locationCode === line.locationCode);
       const freshQty = fresh?.remainingQuantity ?? 0;
       if (line.quantity > freshQty) {
@@ -223,7 +223,7 @@ async function handleSubmit(): Promise<void> {
   submitting.value = true;
   submitError.value = null;
 
-  const availabilityIssue = await verifyLotAvailability(session.value.lines);
+  const availabilityIssue = await verifyLotAvailability(session.value.lines, session.value.customer.locationCode);
   if (availabilityIssue) {
     submitError.value = availabilityIssue;
     lastSubmitError.value = availabilityIssue;
@@ -252,6 +252,7 @@ async function handleSubmit(): Promise<void> {
       postingDate,
       orderNumber,
       ...(authStore.user?.displayName ? { submittedBy: authStore.user.displayName } : {}),
+      ...(customer.locationCode ? { locationCode: customer.locationCode } : {}),
       lines: submitLines,
     });
     result.value = res;

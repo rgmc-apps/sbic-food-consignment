@@ -94,6 +94,24 @@ export const useSessionStore = defineStore('session', () => {
     _saveDraft();
   }
 
+  function updateLineLot(
+    lineId: string,
+    lot: { lotNo?: string; expirationDate?: string; locationCode?: string; availableQuantity: number },
+  ): void {
+    if (!currentSession.value) return;
+    const idx = currentSession.value.lines.findIndex((l) => l.id === lineId);
+    if (idx === -1) return;
+    currentSession.value.lines[idx] = {
+      ...currentSession.value.lines[idx],
+      lotNo: lot.lotNo,
+      expirationDate: lot.expirationDate,
+      locationCode: lot.locationCode,
+      availableQuantity: lot.availableQuantity,
+    };
+    _touch();
+    _saveDraft();
+  }
+
   /** Called on navigation away — persists to drafts but keeps session active. */
   function autoSaveDraft(): void {
     if (!currentSession.value || !currentSession.value.customer) return;
@@ -168,6 +186,7 @@ export const useSessionStore = defineStore('session', () => {
     removeLine,
     updateLineQuantity,
     updateLineExpirationDate,
+    updateLineLot,
     autoSaveDraft,
     saveAsDraftAndExit,
     markSubmitted,

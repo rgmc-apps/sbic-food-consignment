@@ -554,3 +554,9 @@ ion-spinner {
   --width: 296px;
 }
 
+/* Quantity editor popover (Submit's review) — explicit width for the same
+   reason as .date-picker-popover above. */
+.quantity-editor-popover {
+  --width: 260px;
+}
+

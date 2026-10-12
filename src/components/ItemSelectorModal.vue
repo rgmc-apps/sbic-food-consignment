@@ -711,7 +711,15 @@ async function pickItem(item: Item, preferredUomCode?: string): Promise<void> {
     // item's base UOM default, but only if it's actually a valid UOM for
     // this item.
     const preferred = preferredUomCode && uomList.some((u) => u.code === preferredUomCode) ? preferredUomCode : undefined;
-    unitOfMeasureCode.value = preferred || item.baseUnitOfMeasureCode || uomList[0]?.code || '';
+    // If this same item was already added earlier in this order, keep using
+    // whatever UOM the user picked for it then (e.g. they're scanning a
+    // second lot of the same case-packed item) — otherwise every re-scan
+    // would silently reset back to the item's base UOM.
+    const priorLine = [...sessionStore.lines].reverse().find((l) => l.itemNumber === item.number);
+    const retained = priorLine && uomList.some((u) => u.code === priorLine.unitOfMeasureCode)
+      ? priorLine.unitOfMeasureCode
+      : undefined;
+    unitOfMeasureCode.value = preferred || retained || item.baseUnitOfMeasureCode || uomList[0]?.code || '';
   } catch {
     lots.value = [];
     uomOptions.value = [];

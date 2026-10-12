@@ -62,6 +62,14 @@
                 <p class="line-detail-row">
                   <span class="line-detail-label">Quantity</span>
                   <span>{{ line.quantity }} {{ line.unitOfMeasureCode }}</span>
+                  <button
+                    type="button"
+                    class="expiry-edit-btn"
+                    aria-label="Edit quantity"
+                    @click.stop="openQuantityEditor($event, line)"
+                  >
+                    <ion-icon :icon="createOutline" />
+                  </button>
                 </p>
                 <p class="line-detail-row expiry-row">
                   <span class="line-detail-label">Expiry Date</span>
@@ -148,6 +156,7 @@ import { ApiService, ApiError } from '@/services/api.service';
 import { formatDate, formatCurrency, isExpiringSoon } from '@/utils/format';
 import { generateId } from '@/utils/id';
 import DatePickerPopover from '@/components/DatePickerPopover.vue';
+import QuantityEditorPopover from '@/components/QuantityEditorPopover.vue';
 import type { FoodSalesOrderResult, OrderHistoryLine, OrderLine } from '@/types';
 
 const router = useRouter();
@@ -189,6 +198,28 @@ async function openExpiryEditor(ev: Event, line: OrderLine): Promise<void> {
   const { data, role } = await popover.onDidDismiss<string>();
   if (role === 'picked' && data) {
     sessionStore.updateLineExpirationDate(line.id, data);
+  }
+}
+
+async function openQuantityEditor(ev: Event, line: OrderLine): Promise<void> {
+  const popover = await popoverController.create({
+    component: QuantityEditorPopover,
+    componentProps: {
+      modelValue: line.quantity,
+      itemNumber: line.itemNumber,
+      lotNo: line.lotNo,
+      locationCode: line.locationCode,
+      fallbackAvailable: line.availableQuantity,
+    },
+    event: ev,
+    side: 'bottom',
+    alignment: 'start',
+    cssClass: 'quantity-editor-popover',
+  });
+  await popover.present();
+  const { data, role } = await popover.onDidDismiss<number>();
+  if (role === 'saved' && typeof data === 'number') {
+    sessionStore.updateLineQuantity(line.id, data);
   }
 }
 

@@ -81,8 +81,8 @@
                     v-if="line.expirationDate"
                     type="button"
                     class="expiry-edit-btn"
-                    aria-label="Edit expiration date"
-                    @click.stop="openExpiryEditor($event, line)"
+                    aria-label="Edit lot and expiry date"
+                    @click.stop="openLotEditor($event, line)"
                   >
                     <ion-icon :icon="createOutline" />
                   </button>
@@ -90,6 +90,14 @@
                 <p v-if="line.lotNo" class="line-detail-row">
                   <span class="line-detail-label">Lot No.</span>
                   <span>{{ line.lotNo }}</span>
+                  <button
+                    type="button"
+                    class="expiry-edit-btn"
+                    aria-label="Edit lot and expiry date"
+                    @click.stop="openLotEditor($event, line)"
+                  >
+                    <ion-icon :icon="createOutline" />
+                  </button>
                 </p>
                 <p v-if="settingsStore.showItemPrices && priceMap[line.itemNumber] != null" class="line-detail-row">
                   <span class="line-detail-label">Price</span>
@@ -155,7 +163,7 @@ import { useErrorReporter } from '@/composables/useErrorReporter';
 import { ApiService, ApiError } from '@/services/api.service';
 import { formatDate, formatCurrency, isExpiringSoon } from '@/utils/format';
 import { generateId } from '@/utils/id';
-import DatePickerPopover from '@/components/DatePickerPopover.vue';
+import LotEditorPopover from '@/components/LotEditorPopover.vue';
 import QuantityEditorPopover from '@/components/QuantityEditorPopover.vue';
 import type { FoodSalesOrderResult, OrderHistoryLine, OrderLine } from '@/types';
 
@@ -185,19 +193,25 @@ const canSubmit = computed(() =>
   !!session.value?.customer && !!session.value.lines.length && !!orderNumberInput.value.trim(),
 );
 
-async function openExpiryEditor(ev: Event, line: OrderLine): Promise<void> {
+async function openLotEditor(ev: Event, line: OrderLine): Promise<void> {
   const popover = await popoverController.create({
-    component: DatePickerPopover,
-    componentProps: { modelValue: line.expirationDate },
+    component: LotEditorPopover,
+    componentProps: {
+      itemNumber: line.itemNumber,
+      locationCode: line.locationCode,
+      currentLotNo: line.lotNo,
+    },
     event: ev,
     side: 'bottom',
     alignment: 'start',
-    cssClass: 'date-picker-popover',
+    cssClass: 'lot-editor-popover',
   });
   await popover.present();
-  const { data, role } = await popover.onDidDismiss<string>();
+  const { data, role } = await popover.onDidDismiss<{
+    lotNo?: string; expirationDate?: string; locationCode?: string; availableQuantity: number;
+  }>();
   if (role === 'picked' && data) {
-    sessionStore.updateLineExpirationDate(line.id, data);
+    sessionStore.updateLineLot(line.id, data);
   }
 }
 

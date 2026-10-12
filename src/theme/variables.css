@@ -560,3 +560,9 @@ ion-spinner {
   --width: 260px;
 }
 
+/* Lot/expiry editor popover (Submit's review) — explicit width for the same
+   reason as .date-picker-popover above. */
+.lot-editor-popover {
+  --width: 300px;
+}
+

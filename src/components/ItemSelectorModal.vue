@@ -719,7 +719,11 @@ async function pickItem(item: Item, preferredUomCode?: string): Promise<void> {
     const retained = priorLine && uomList.some((u) => u.code === priorLine.unitOfMeasureCode)
       ? priorLine.unitOfMeasureCode
       : undefined;
-    unitOfMeasureCode.value = preferred || retained || item.baseUnitOfMeasureCode || uomList[0]?.code || '';
+    // Absent a barcode- or order-specific override, default to "Piece" (PCS)
+    // rather than the item's base UOM — most items are sold/counted by the
+    // piece on this screen, so that's the UOM users expect to see selected.
+    const pcsUom = uomList.find((u) => u.code.toUpperCase() === 'PCS' || u.description?.toUpperCase() === 'PIECE');
+    unitOfMeasureCode.value = preferred || retained || pcsUom?.code || item.baseUnitOfMeasureCode || uomList[0]?.code || '';
   } catch {
     lots.value = [];
     uomOptions.value = [];

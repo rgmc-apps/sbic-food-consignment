@@ -169,9 +169,11 @@ export const ApiService = {
     return res.data as Record<string, number>;
   },
 
-  /** Synchronous, direct submit to Business Central — no queue, no polling. */
+  /** Synchronous, direct submit to Business Central — no queue, no polling.
+   *  Larger orders (many lot-tracked lines) can take longer than the default
+   *  client timeout for BC to process, so this call gets a longer allowance. */
   async submitSalesOrder(payload: FoodSalesOrderPayload): Promise<FoodSalesOrderResult> {
-    const res = await apiClient.post('/food/sales-orders', payload);
+    const res = await apiClient.post('/food/sales-orders', payload, { timeout: 180_000 });
     return res.data as FoodSalesOrderResult;
   },
 

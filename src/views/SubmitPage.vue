@@ -152,7 +152,7 @@ import { ref, computed } from 'vue';
 import {
   IonPage, IonHeader, IonToolbar, IonTitle, IonButtons, IonBackButton, IonContent, IonCard,
   IonCardHeader, IonCardSubtitle, IonCardTitle, IonCardContent, IonItem, IonLabel, IonInput,
-  IonList, IonButton, IonSpinner, IonIcon, popoverController,
+  IonList, IonButton, IonSpinner, IonIcon, popoverController, alertController,
 } from '@ionic/vue';
 import { checkmarkCircleOutline, createOutline, bugOutline } from 'ionicons/icons';
 import { useRouter } from 'vue-router';
@@ -188,6 +188,23 @@ if (settingsStore.showItemPrices && session.value?.lines.length) {
     .catch(() => { /* ignore — prices just won't show */ });
 }
 const result = ref<FoodSalesOrderResult | null>(null);
+
+// Matches BC's "Application_DialogException ... cannot assign new numbers
+// from the number series <code>" — a config issue (series exhausted), not
+// something retrying fixes, so it gets its own explicit prompt.
+const NUMBER_SERIES_EXHAUSTED_PATTERN = /cannot assign new numbers from the number series/i;
+
+async function presentNumberSeriesExhaustedAlert(): Promise<void> {
+  const alert = await alertController.create({
+    header: 'Order Numbering Unavailable',
+    message: 'Business Central could not assign a new order number right now. Nothing was submitted — your order is safe. Save it as a draft and try again once this is resolved.',
+    buttons: [
+      { text: 'Keep Editing', role: 'cancel' },
+      { text: 'Save to Drafts', handler: () => saveDraftAndExit() },
+    ],
+  });
+  await alert.present();
+}
 
 const canSubmit = computed(() =>
   !!session.value?.customer && !!session.value.lines.length && !!orderNumberInput.value.trim(),
@@ -337,6 +354,9 @@ async function handleSubmit(): Promise<void> {
       lines: historyLines,
       createdAt: new Date().toISOString(),
     }).catch(() => {});
+    if (NUMBER_SERIES_EXHAUSTED_PATTERN.test(submitError.value)) {
+      await presentNumberSeriesExhaustedAlert();
+    }
   } finally {
     submitting.value = false;
   }

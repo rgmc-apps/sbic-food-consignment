@@ -189,10 +189,12 @@ if (settingsStore.showItemPrices && session.value?.lines.length) {
 }
 const result = ref<FoodSalesOrderResult | null>(null);
 
-// Matches BC's "Application_DialogException ... cannot assign new numbers
-// from the number series <code>" — a config issue (series exhausted), not
-// something retrying fixes, so it gets its own explicit prompt.
-const NUMBER_SERIES_EXHAUSTED_PATTERN = /cannot assign new numbers from the number series/i;
+// Matches two known number-series config issues, neither fixed by retrying:
+// BC's own "cannot assign new numbers from the number series <code>", and
+// the backend's rollback when BC assigns the wrong series ("was assigned
+// from No. Series 'X' instead of the required 'Y' ... order rolled back").
+// Both mean nothing was posted, so they get the same explicit prompt.
+const NUMBER_SERIES_EXHAUSTED_PATTERN = /cannot assign new numbers from the number series|was assigned from no\. series .* instead of the required .* order rolled back/i;
 
 async function presentNumberSeriesExhaustedAlert(): Promise<void> {
   const alert = await alertController.create({

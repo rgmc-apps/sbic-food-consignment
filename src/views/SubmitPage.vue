@@ -136,9 +136,9 @@
         <p class="confirm-doc">Business Central Document No.</p>
         <p class="confirm-doc-no">{{ result.documentNumber }}</p>
         <p class="confirm-order-no">Order No.: {{ result.externalDocumentNo }}</p>
-        <div v-if="result.trackingWarnings?.length" class="tracking-warning">
+        <div v-if="lotTrackingWarnings.length" class="tracking-warning">
           <p class="tracking-warning-title">Lot tracking not recorded</p>
-          <p v-for="(w, i) in result.trackingWarnings" :key="i">{{ w }}</p>
+          <p v-for="(w, i) in lotTrackingWarnings" :key="i">{{ w }}</p>
         </div>
         <ion-button expand="block" @click="finishAndGoHome">Done</ion-button>
       </div>
@@ -207,6 +207,13 @@ async function presentNumberSeriesExhaustedAlert(): Promise<void> {
   });
   await alert.present();
 }
+
+// The backend overloads trackingWarnings with a non-lot-tracking warning
+// (wrong No. Series assigned) — strip that out here so "Lot tracking not
+// recorded" only appears, and only lists, actual lot-tracking warnings.
+const lotTrackingWarnings = computed(() =>
+  result.value?.trackingWarnings?.filter((w) => !/no\.\s*series/i.test(w)) ?? [],
+);
 
 const canSubmit = computed(() =>
   !!session.value?.customer && !!session.value.lines.length && !!orderNumberInput.value.trim(),

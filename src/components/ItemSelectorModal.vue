@@ -109,6 +109,9 @@
           <div v-if="scanStatus === 'error'" class="camera-error-panel">
             <ion-icon :icon="alertCircleOutline" class="camera-error-icon" />
             <p class="camera-error-msg">{{ cameraErrorMessage }}</p>
+            <ion-button v-if="cameraErrorOpenSettings" expand="block" color="primary" class="camera-error-retry" @click="cameraErrorOpenSettings()">
+              {{ cameraErrorOpenSettingsLabel }}
+            </ion-button>
             <ion-button v-if="cameraErrorCanRetry" expand="block" fill="outline" class="camera-error-retry" @click="openScanner">
               Try Again
             </ion-button>
@@ -429,6 +432,8 @@ const lastScannedBarcode = ref('');
 const cameraAvailable = ref('mediaDevices' in navigator && 'getUserMedia' in navigator.mediaDevices);
 const cameraErrorMessage = ref('');
 const cameraErrorCanRetry = ref(true);
+const cameraErrorOpenSettings = ref<(() => void) | null>(null);
+const cameraErrorOpenSettingsLabel = ref('');
 let detectionInterval: ReturnType<typeof setInterval> | null = null;
 let audioCtx: AudioContext | null = null;
 let unwatchCameraPermission: (() => void) | null = null;
@@ -493,6 +498,8 @@ async function openScanner(): Promise<void> {
     const info = describeCameraError(err);
     cameraErrorMessage.value = info.message;
     cameraErrorCanRetry.value = info.canRetry;
+    cameraErrorOpenSettings.value = info.openSettings ?? null;
+    cameraErrorOpenSettingsLabel.value = info.openSettingsLabel ?? '';
     scanStatus.value = 'error';
     void reportCameraError('barcode-scanner', err, info.message);
     // If this was a blocked-permission case, resume automatically the

@@ -4,18 +4,67 @@ import { useAuthStore } from '@/stores/auth.store';
 import { APP_VERSION } from '@/version';
 import type { CameraErrorReportPayload } from '@/types';
 
+/** Fallback message for platforms with no one-tap settings deep link
+ *  (desktop browsers — chrome://, about:, edge:// settings pages are all
+ *  blocked from being opened by a web page, by browser design). */
 export const CAMERA_DENIED_MESSAGE =
   'Camera access is blocked for this site. Tap the lock/info icon next to your browser\'s address bar → Permissions → Camera → Allow, then try again. You can also type the number in manually.';
+
+export interface CameraDeniedGuidance {
+  message: string;
+  /** Only set where a one-tap deep link can plausibly jump straight to the
+   *  right settings screen (Android only). Always paired with `message`
+   *  still spelling out the manual steps — intent:// navigation is
+   *  best-effort (some in-app browsers/webviews ignore it silently), so
+   *  there must never be a dead end if the button does nothing. */
+  openSettingsLabel?: string;
+  openSettings?: () => void;
+}
+
+/** Jumps to this browser's own Android "App Info" screen — one tap away
+ *  from Permissions → Camera — via Android's standard, stable
+ *  ACTION_APPLICATION_DETAILS_SETTINGS intent (not a Chrome-specific
+ *  trick). Guesses the package from the user agent; defaults to Chrome. */
+function openAndroidAppSettings(): void {
+  const ua = navigator.userAgent;
+  const pkg = /SamsungBrowser/i.test(ua) ? 'com.sec.android.app.sbrowser'
+    : /Firefox/i.test(ua) ? 'org.mozilla.firefox'
+    : /EdgA/i.test(ua) ? 'com.microsoft.emmx'
+    : 'com.android.chrome';
+  window.location.href = `intent://${pkg}#Intent;scheme=package;action=android.settings.APPLICATION_DETAILS_SETTINGS;end`;
+}
+
+/** Camera-permission-denied guidance, tailored to this device/browser —
+ *  Android gets a real one-tap settings deep link, iOS/desktop (where no
+ *  web page can deep-link into browser/OS settings, by platform design)
+ *  get precise written steps for their actual UI instead of a generic
+ *  "tap the lock icon" that may not match what they're looking at. */
+export function getCameraDeniedGuidance(): CameraDeniedGuidance {
+  const ua = navigator.userAgent;
+  if (/Android/i.test(ua)) {
+    return {
+      message: 'Camera access is blocked for this site. Tap "Open App Settings" below, then Permissions → Camera → Allow and come back. If nothing opens, tap the lock/tune icon next to the address bar instead → Permissions → Camera → Allow.',
+      openSettingsLabel: 'Open App Settings',
+      openSettings: openAndroidAppSettings,
+    };
+  }
+  if (/iPhone|iPad|iPod/i.test(ua)) {
+    return {
+      message: 'Camera access is blocked for this site. In Safari, tap the "aA" icon at the left of the address bar → Website Settings → Camera → Allow, then reload this page. You can also type the number in manually.',
+    };
+  }
+  return { message: CAMERA_DENIED_MESSAGE };
+}
 
 /** Maps a getUserMedia() rejection to user-facing guidance. canRetry means
  *  tapping "Try Again" can plausibly fix it on its own (transient/permission
  *  cases) — false means no in-app action will help (e.g. no camera at all). */
-export function describeCameraError(err: unknown): { message: string; canRetry: boolean } {
+export function describeCameraError(err: unknown): CameraDeniedGuidance & { canRetry: boolean } {
   const name = err instanceof DOMException ? err.name : '';
   switch (name) {
     case 'NotAllowedError':
     case 'PermissionDeniedError':
-      return { message: CAMERA_DENIED_MESSAGE, canRetry: true };
+      return { ...getCameraDeniedGuidance(), canRetry: true };
     case 'NotFoundError':
     case 'DevicesNotFoundError':
       return { message: 'No camera was found on this device. Use manual entry instead.', canRetry: false };

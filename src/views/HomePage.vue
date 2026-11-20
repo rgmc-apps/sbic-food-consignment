@@ -42,6 +42,7 @@
                   </div>
                   <ion-label>
                     <h2>{{ draft.customer?.displayName ?? 'No customer selected' }}</h2>
+                    <p v-if="draft.orderNumber">Ext. Doc. No. {{ draft.orderNumber }}</p>
                     <p>
                       {{ draft.lines.length }} item(s) · updated {{ formatDate(draft.updatedAt) }}
                       <span v-if="draftHasExpiringSoon(draft)" class="expiry-badge">Expiring soon</span>

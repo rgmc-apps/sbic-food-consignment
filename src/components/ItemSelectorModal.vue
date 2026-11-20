@@ -100,7 +100,18 @@
               <div class="corner br" />
               <div v-if="scanStatus === 'scanning'" class="scan-line" />
             </div>
-            <p class="scan-hint" :class="`scan-hint--${scanStatus}`">{{ scanHintText }}</p>
+            <p v-if="scanStatus !== 'error'" class="scan-hint" :class="`scan-hint--${scanStatus}`">{{ scanHintText }}</p>
+          </div>
+
+          <!-- Camera troubleshooting — specific cause + a one-tap retry where
+               that can plausibly help; manual entry below is always visible
+               as the zero-fuss fallback either way. -->
+          <div v-if="scanStatus === 'error'" class="camera-error-panel">
+            <ion-icon :icon="alertCircleOutline" class="camera-error-icon" />
+            <p class="camera-error-msg">{{ cameraErrorMessage }}</p>
+            <ion-button v-if="cameraErrorCanRetry" expand="block" fill="outline" class="camera-error-retry" @click="openScanner">
+              Try Again
+            </ion-button>
           </div>
 
           <!-- Single barcode confirmation -->
@@ -271,6 +282,7 @@ import { useAuthStore } from '@/stores/auth.store';
 import { useSessionStore } from '@/stores/session.store';
 import { useSettingsStore } from '@/stores/settings.store';
 import { formatDate, formatCurrency, isExpiringSoon, addShelfLifeMonths } from '@/utils/format';
+import { describeCameraError, watchCameraPermission, reportCameraError } from '@/composables/useCameraTroubleshoot';
 import type { Item, ItemLot, ItemUnitOfMeasure, Page } from '@/types';
 
 const props = defineProps<{ startInScanner?: boolean }>();
@@ -415,8 +427,11 @@ const confirmedBarcode = ref('');
 const barcodeNotFound = ref(false);
 const lastScannedBarcode = ref('');
 const cameraAvailable = ref('mediaDevices' in navigator && 'getUserMedia' in navigator.mediaDevices);
+const cameraErrorMessage = ref('');
+const cameraErrorCanRetry = ref(true);
 let detectionInterval: ReturnType<typeof setInterval> | null = null;
 let audioCtx: AudioContext | null = null;
+let unwatchCameraPermission: (() => void) | null = null;
 
 const scanHintText = computed(() => {
   switch (scanStatus.value) {
@@ -446,10 +461,25 @@ async function openScanner(): Promise<void> {
 
   await new Promise((r) => setTimeout(r, 80)); // let DOM render the video element
 
+  unwatchCameraPermission?.();
+  unwatchCameraPermission = null;
+
   try {
-    const stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 } },
-    });
+    let stream: MediaStream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 } },
+      });
+    } catch (err) {
+      // The rear-camera constraint itself can't be satisfied (rare on some
+      // devices/browsers) — fall back to whatever camera is available
+      // instead of surfacing an error the user can't do anything about.
+      if (err instanceof DOMException && err.name === 'OverconstrainedError') {
+        stream = await navigator.mediaDevices.getUserMedia({ video: true });
+      } else {
+        throw err;
+      }
+    }
     videoStream.value = stream;
     if (videoEl.value) {
       videoEl.value.srcObject = stream;
@@ -459,8 +489,18 @@ async function openScanner(): Promise<void> {
     if ('BarcodeDetector' in window) {
       startAutoDetection();
     }
-  } catch {
+  } catch (err) {
+    const info = describeCameraError(err);
+    cameraErrorMessage.value = info.message;
+    cameraErrorCanRetry.value = info.canRetry;
     scanStatus.value = 'error';
+    void reportCameraError('barcode-scanner', err, info.message);
+    // If this was a blocked-permission case, resume automatically the
+    // instant the user flips it in their browser's site settings — no need
+    // for them to remember to come back and tap "Try Again" themselves.
+    unwatchCameraPermission = watchCameraPermission(() => {
+      if (scanStatus.value === 'error') void openScanner();
+    });
   }
 }
 
@@ -558,6 +598,8 @@ function stopCamera(): void {
   videoStream.value = null;
   audioCtx?.close();
   audioCtx = null;
+  unwatchCameraPermission?.();
+  unwatchCameraPermission = null;
 }
 
 function submitManual(): void {
@@ -1141,6 +1183,43 @@ function handleClose(): void {
   font-size: 13px;
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
+}
+
+/* ── Camera troubleshooting panel ── */
+.camera-error-panel {
+  position: absolute;
+  left: 16px;
+  right: 16px;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 20px 16px;
+  background: rgba(10, 10, 10, 0.96);
+  border: 1px solid #2a2a2a;
+  border-radius: 12px;
+  pointer-events: all;
+  text-align: center;
+}
+
+.camera-error-icon {
+  font-size: 28px;
+  color: var(--ion-color-danger);
+}
+
+.camera-error-msg {
+  margin: 0;
+  color: #ddd;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.camera-error-retry {
+  margin-top: 4px;
+  width: 100%;
 }
 
 /* ── Single barcode confirm panel ── */

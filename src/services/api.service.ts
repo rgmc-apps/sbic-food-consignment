@@ -1,5 +1,6 @@
 import axios from 'axios';
 import type {
+  CameraErrorReportPayload,
   Company,
   Contact,
   Customer,
@@ -190,5 +191,16 @@ export const ApiService = {
       params: { username: opts.username, limit: opts.limit ?? 50, offset: opts.offset ?? 0 },
     });
     return toPage<OrderHistoryRecord>(res.data);
+  },
+
+  /** Fire-and-forget: tells the backend to email the developer about a
+   *  device-side camera-unavailable failure. Never throws — a failure to
+   *  report the problem must never itself surface as a user-facing error. */
+  async reportCameraError(report: CameraErrorReportPayload): Promise<void> {
+    try {
+      await apiClient.post('/food/camera-error-report', report);
+    } catch {
+      // best-effort diagnostic — ignore
+    }
   },
 };

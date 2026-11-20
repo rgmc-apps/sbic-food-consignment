@@ -162,6 +162,32 @@ export interface FoodSalesOrderResult {
   trackingWarnings?: string[];
 }
 
+/** A client-side camera-unavailable failure (barcode scanner or OCR
+ *  order-number capture), posted fire-and-forget to /food/camera-error-report
+ *  so the backend can email the developer — see useCameraTroubleshoot.ts. */
+export interface CameraErrorReportPayload {
+  feature: 'barcode-scanner' | 'ocr-order-number';
+  errorName?: string;
+  errorMessage?: string;
+  userFacingMessage?: string;
+  permissionState?: string;
+  mediaDevicesSupported?: boolean;
+  cameraDeviceCount?: number;
+  isSecureContext?: boolean;
+  url?: string;
+  userAgent?: string;
+  platform?: string;
+  language?: string;
+  screenResolution?: string;
+  viewportSize?: string;
+  online?: boolean;
+  appVersion?: string;
+  username?: string;
+  userDisplayName?: string;
+  companyCode?: string;
+  clientTimestamp?: string;
+}
+
 /** Standard pagination envelope every /food/* list endpoint returns. */
 export interface Page<T> {
   value: T[];

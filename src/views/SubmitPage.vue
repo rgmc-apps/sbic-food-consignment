@@ -47,7 +47,28 @@
             placeholder="Enter the online order number"
             @ion-input="sessionStore.setOrderNumber(orderNumberInput)"
           />
+          <button
+            type="button"
+            class="expiry-edit-btn"
+            slot="end"
+            aria-label="Scan order number with camera"
+            :title="cameraAvailable ? 'Scan order number with camera' : 'Camera unavailable — use manual input'"
+            :disabled="ocrBusy || !cameraAvailable"
+            @click="triggerOcrCapture"
+          >
+            <ion-spinner v-if="ocrBusy" name="crescent" />
+            <ion-icon v-else :icon="cameraOutline" />
+          </button>
+          <input
+            ref="ocrFileInput"
+            type="file"
+            accept="image/*"
+            capture="environment"
+            class="ocr-file-input"
+            @change="handleOcrCapture"
+          />
         </ion-item>
+        <p v-if="orderNumberFormatError" class="order-no-error">{{ orderNumberFormatError }}</p>
 
         <div class="lines-section">
           <p class="section-label">Order Lines</p>
@@ -154,7 +175,7 @@ import {
   IonCardHeader, IonCardSubtitle, IonCardTitle, IonCardContent, IonItem, IonLabel, IonInput,
   IonList, IonButton, IonSpinner, IonIcon, popoverController, alertController,
 } from '@ionic/vue';
-import { checkmarkCircleOutline, createOutline, bugOutline } from 'ionicons/icons';
+import { checkmarkCircleOutline, createOutline, bugOutline, cameraOutline } from 'ionicons/icons';
 import { useRouter } from 'vue-router';
 import { useAuthStore } from '@/stores/auth.store';
 import { useSessionStore } from '@/stores/session.store';
@@ -165,6 +186,7 @@ import { formatDate, formatCurrency, isExpiringSoon } from '@/utils/format';
 import { generateId } from '@/utils/id';
 import LotEditorPopover from '@/components/LotEditorPopover.vue';
 import QuantityEditorPopover from '@/components/QuantityEditorPopover.vue';
+import { useCameraAvailability, isCameraPermissionDenied, reportCameraError, CAMERA_DENIED_MESSAGE } from '@/composables/useCameraTroubleshoot';
 import type { FoodSalesOrderResult, OrderHistoryLine, OrderLine } from '@/types';
 
 const router = useRouter();
@@ -175,6 +197,9 @@ const { openReport } = useErrorReporter();
 const session = computed(() => sessionStore.currentSession);
 
 const orderNumberInput = ref(session.value?.orderNumber ?? '');
+const ocrBusy = ref(false);
+const ocrFileInput = ref<HTMLInputElement | null>(null);
+const { cameraAvailable } = useCameraAvailability();
 const submitting = ref(false);
 const submitError = ref<string | null>(null);
 const lastSubmitError = ref<unknown>(null);
@@ -188,6 +213,57 @@ if (settingsStore.showItemPrices && session.value?.lines.length) {
     .catch(() => { /* ignore — prices just won't show */ });
 }
 const result = ref<FoodSalesOrderResult | null>(null);
+
+async function triggerOcrCapture(): Promise<void> {
+  // Known-blocked permission — skip opening a camera UI we already know is
+  // dead and show the fix-it message right away, rather than making the
+  // user tap through a picker that silently won't show a live camera.
+  if (await isCameraPermissionDenied()) {
+    void reportCameraError('ocr-order-number', new DOMException('Camera permission denied', 'NotAllowedError'), CAMERA_DENIED_MESSAGE);
+    const alert = await alertController.create({
+      header: 'Camera Unavailable',
+      message: CAMERA_DENIED_MESSAGE,
+      buttons: ['OK'],
+    });
+    await alert.present();
+    return;
+  }
+  ocrFileInput.value?.click();
+}
+
+async function handleOcrCapture(ev: Event): Promise<void> {
+  const input = ev.target as HTMLInputElement;
+  const file = input.files?.[0];
+  input.value = '';
+  if (!file) return;
+
+  ocrBusy.value = true;
+  try {
+    const { recognize } = await import('tesseract.js');
+    const { data } = await recognize(file, 'eng');
+    const text = data.text.replace(/\s+/g, '').trim();
+    if (!text) {
+      const alert = await alertController.create({
+        header: 'No Text Found',
+        message: 'Could not read an order number from that photo. Try again with a clearer, well-lit shot, or type it in manually.',
+        buttons: ['OK'],
+      });
+      await alert.present();
+      return;
+    }
+    orderNumberInput.value = text;
+    sessionStore.setOrderNumber(text);
+  } catch {
+    const alert = await alertController.create({
+      header: 'Scan Failed',
+      message: 'Something went wrong reading that photo. Try again or type the order number manually.',
+      buttons: ['OK'],
+    });
+    await alert.present();
+  } finally {
+    ocrBusy.value = false;
+  }
+}
 
 // Matches two known number-series config issues, neither fixed by retrying:
 // BC's own "cannot assign new numbers from the number series <code>", and
@@ -215,8 +291,33 @@ const lotTrackingWarnings = computed(() =>
   result.value?.trackingWarnings?.filter((w) => !/no\.\s*series/i.test(w)) ?? [],
 );
 
+// Marketplace customers each have their own fixed order-number format on
+// their platform — matched by customer display name (BC customer records
+// are named after the marketplace, e.g. "Lazada Philippines Inc.").
+interface OrderNumberFormatRule { name: string; customerMatch: RegExp; pattern: RegExp; description: string; }
+const ORDER_NUMBER_FORMAT_RULES: OrderNumberFormatRule[] = [
+  { name: 'Lazada', customerMatch: /lazada/i, pattern: /^\d{16}$/, description: '16 digits' },
+  { name: 'Shopee', customerMatch: /shopee/i, pattern: /^[A-Za-z0-9]{14}$/, description: '14 letters/numbers' },
+  { name: 'TikTok', customerMatch: /tik\s*tok/i, pattern: /^\d{18}$/, description: '18 digits' },
+  { name: 'Zalora', customerMatch: /zalora/i, pattern: /^\d{9}$/, description: '9 digits' },
+  { name: 'Shopify', customerMatch: /shopify/i, pattern: /^[A-Za-z0-9]{6}$/, description: '6 letters/numbers' },
+];
+
+const orderNumberFormatRule = computed(() => {
+  const name = session.value?.customer?.displayName ?? '';
+  return ORDER_NUMBER_FORMAT_RULES.find((r) => r.customerMatch.test(name)) ?? null;
+});
+
+const orderNumberFormatError = computed(() => {
+  const rule = orderNumberFormatRule.value;
+  const value = orderNumberInput.value.trim();
+  if (!rule || !value || rule.pattern.test(value)) return null;
+  return `${rule.name} order numbers must be exactly ${rule.description}.`;
+});
+
 const canSubmit = computed(() =>
-  !!session.value?.customer && !!session.value.lines.length && !!orderNumberInput.value.trim(),
+  !!session.value?.customer && !!session.value.lines.length && !!orderNumberInput.value.trim()
+  && !orderNumberFormatError.value,
 );
 
 async function openLotEditor(ev: Event, line: OrderLine): Promise<void> {
@@ -411,6 +512,8 @@ function finishAndGoHome(): void {
     margin-right: 0;
   }
 
+  .order-no-error { grid-column: 1; order: 2; }
+
   .submit-error { grid-column: 1; order: 3; }
 
   .action-buttons {
@@ -454,6 +557,16 @@ function finishAndGoHome(): void {
 
 .order-no-field {
   margin: 4px 16px 0;
+}
+
+.order-no-error {
+  color: var(--ion-color-danger);
+  font-size: var(--text-xs);
+  margin: 4px 16px 0;
+}
+
+.ocr-file-input {
+  display: none;
 }
 
 .lines-list {

@@ -295,6 +295,45 @@ function boxSum(integral: Float64Array, w: number, h: number, x0: number, y0: nu
   return integral[cy1 * stride + cx1] - integral[cy0 * stride + cx1] - integral[cy1 * stride + cx0] + integral[cy0 * stride + cx0];
 }
 
+// Mean of every pixel's own `radius`-sized neighborhood, via the integral
+// image above — one O(1)-per-pixel pass, reused below both as a denoise
+// blur, as the "soft" reference an unsharp mask sharpens against, and as
+// the local-mean threshold adaptiveThreshold compares each pixel to.
+function boxBlur(gray: Uint8ClampedArray, w: number, h: number, radius: number): Uint8ClampedArray {
+  const integral = buildIntegralImage(gray, w, h);
+  const out = new Uint8ClampedArray(w * h);
+  for (let y = 0; y < h; y++) {
+    const y0 = y - radius;
+    const y1 = y + radius + 1;
+    for (let x = 0; x < w; x++) {
+      const x0 = x - radius;
+      const x1 = x + radius + 1;
+      const count = (Math.min(w, x1) - Math.max(0, x0)) * (Math.min(h, y1) - Math.max(0, y0));
+      out[y * w + x] = boxSum(integral, w, h, x0, y0, x1, y1) / count;
+    }
+  }
+  return out;
+}
+
+// Light denoise (kills JPEG/chromatic speckle a sharpen pass would
+// otherwise amplify) followed by an unsharp mask: pixels pull away from a
+// locally-blurred reference of themselves, exaggerating edges — the single
+// most direct counter to the soft/motion-blurred text real phone photos
+// produce. Can't undo severe blur, but meaningfully recovers mild-to-moderate
+// softness before thresholding.
+const DENOISE_RADIUS_PX = 1;
+const SHARPEN_RADIUS_PX = 2;
+const SHARPEN_AMOUNT = 1.2;
+function sharpen(gray: Uint8ClampedArray, w: number, h: number): Uint8ClampedArray {
+  const denoised = boxBlur(gray, w, h, DENOISE_RADIUS_PX);
+  const soft = boxBlur(denoised, w, h, SHARPEN_RADIUS_PX);
+  const out = new Uint8ClampedArray(w * h);
+  for (let i = 0; i < denoised.length; i++) {
+    out[i] = denoised[i] + SHARPEN_AMOUNT * (denoised[i] - soft[i]); // Uint8ClampedArray clamps to [0,255]
+  }
+  return out;
+}
+
 // Local (adaptive) binarization — each pixel is judged against the average
 // brightness of its own neighborhood rather than the whole image, so an
 // unevenly lit or blurry/chromatic-noisy photo (shadows across the crop,
@@ -304,28 +343,22 @@ function boxSum(integral: Float64Array, w: number, h: number, x0: number, y0: nu
 const ADAPTIVE_WINDOW_PX = 15; // neighborhood half-size, in post-upscale px
 const ADAPTIVE_BIAS = 8; // how much darker than the local mean counts as "ink"
 function adaptiveThreshold(gray: Uint8ClampedArray, w: number, h: number): Uint8ClampedArray {
-  const integral = buildIntegralImage(gray, w, h);
+  const localMean = boxBlur(gray, w, h, ADAPTIVE_WINDOW_PX);
   const out = new Uint8ClampedArray(w * h);
-  for (let y = 0; y < h; y++) {
-    const y0 = y - ADAPTIVE_WINDOW_PX;
-    const y1 = y + ADAPTIVE_WINDOW_PX + 1;
-    for (let x = 0; x < w; x++) {
-      const x0 = x - ADAPTIVE_WINDOW_PX;
-      const x1 = x + ADAPTIVE_WINDOW_PX + 1;
-      const count = (Math.min(w, x1) - Math.max(0, x0)) * (Math.min(h, y1) - Math.max(0, y0));
-      const localMean = boxSum(integral, w, h, x0, y0, x1, y1) / count;
-      out[y * w + x] = gray[y * w + x] < localMean - ADAPTIVE_BIAS ? 0 : 255;
-    }
+  for (let i = 0; i < gray.length; i++) {
+    out[i] = gray[i] < localMean[i] - ADAPTIVE_BIAS ? 0 : 255;
   }
   return out;
 }
 
-// Grayscale → global contrast-stretch → adaptive threshold, upscaling small
-// crops first. Phone-camera photos are frequently dim/low-contrast and
-// unevenly lit, which (along with motion blur) is one of the biggest
-// real-world accuracy killers for OCR — this pipeline targets exactly that.
-// Falls back to the raw crop on any failure (e.g. canvas APIs misbehaving)
-// rather than blocking the scan over an optional accuracy boost.
+// Grayscale → contrast-stretch → denoise/sharpen → adaptive threshold,
+// upscaling small crops first (with high-quality interpolation, so the
+// upscale itself doesn't add more blur than it fixes). Phone-camera photos
+// are frequently dim, unevenly lit, noisy, and soft-focus/motion-blurred —
+// together the single biggest real-world accuracy killer for OCR — so this
+// pipeline targets exactly that, in the order each step most helps the
+// next. Falls back to the raw crop on any failure (e.g. canvas APIs
+// misbehaving) rather than blocking the scan over an optional accuracy boost.
 const OCR_MIN_HEIGHT_PX = 120;
 async function preprocessForOcr(blob: Blob): Promise<Blob> {
   const img = await loadImageFromBlob(blob);
@@ -338,6 +371,8 @@ async function preprocessForOcr(blob: Blob): Promise<Blob> {
   canvas.height = h;
   const ctx = canvas.getContext('2d');
   if (!ctx) return blob;
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
   ctx.drawImage(img, 0, 0, w, h);
 
   const imageData = ctx.getImageData(0, 0, w, h);
@@ -357,7 +392,8 @@ async function preprocessForOcr(blob: Blob): Promise<Blob> {
     gray[i] = ((gray[i] - min) / range) * 255;
   }
 
-  const binary = adaptiveThreshold(gray, w, h);
+  const sharpened = sharpen(gray, w, h);
+  const binary = adaptiveThreshold(sharpened, w, h);
   for (let i = 0; i < binary.length; i++) {
     const px = i * 4;
     data[px] = data[px + 1] = data[px + 2] = binary[i];

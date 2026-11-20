@@ -198,7 +198,7 @@ import { formatDate, formatCurrency, isExpiringSoon } from '@/utils/format';
 import { generateId } from '@/utils/id';
 import LotEditorPopover from '@/components/LotEditorPopover.vue';
 import QuantityEditorPopover from '@/components/QuantityEditorPopover.vue';
-import { useCameraAvailability, isCameraPermissionDenied, reportCameraError, CAMERA_DENIED_MESSAGE } from '@/composables/useCameraTroubleshoot';
+import { useCameraAvailability, isCameraPermissionDenied, reportCameraError, getCameraDeniedGuidance } from '@/composables/useCameraTroubleshoot';
 import type { FoodSalesOrderResult, OrderHistoryLine, OrderLine } from '@/types';
 
 const router = useRouter();
@@ -239,14 +239,18 @@ async function triggerOcrCapture(): Promise<void> {
   // dead and show the fix-it message right away, rather than making the
   // user tap through a picker that silently won't show a live camera.
   if (await isCameraPermissionDenied()) {
-    void reportCameraError('ocr-order-number', new DOMException('Camera permission denied', 'NotAllowedError'), CAMERA_DENIED_MESSAGE);
+    const guidance = getCameraDeniedGuidance();
+    void reportCameraError('ocr-order-number', new DOMException('Camera permission denied', 'NotAllowedError'), guidance.message);
     // Genuinely can't scan — don't leave manual entry locked behind an SOP
     // this device has no way to satisfy.
     ocrAttempted.value = true;
     const alert = await alertController.create({
       header: 'Camera Unavailable',
-      message: CAMERA_DENIED_MESSAGE,
-      buttons: ['OK'],
+      message: guidance.message,
+      buttons: [
+        ...(guidance.openSettings ? [{ text: guidance.openSettingsLabel ?? 'Open App Settings', handler: guidance.openSettings }] : []),
+        'OK',
+      ],
     });
     await alert.present();
     return;

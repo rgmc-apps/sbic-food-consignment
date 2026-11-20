@@ -259,6 +259,60 @@ async function triggerOcrCapture(): Promise<void> {
   ocrFileInput.value?.click();
 }
 
+function loadImageFromBlob(blob: Blob): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(blob);
+    const img = new Image();
+    img.onload = () => { URL.revokeObjectURL(url); resolve(img); };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Could not load image for OCR preprocessing')); };
+    img.src = url;
+  });
+}
+
+// Grayscale + contrast-stretch, upscaling small crops first — phone-camera
+// photos are often low-contrast/dim under indoor lighting, which is one of
+// the biggest real-world accuracy killers for OCR. Falls back to the raw
+// crop on any failure (e.g. canvas APIs misbehaving) rather than blocking
+// the scan over an optional accuracy boost.
+const OCR_MIN_HEIGHT_PX = 120;
+async function preprocessForOcr(blob: Blob): Promise<Blob> {
+  const img = await loadImageFromBlob(blob);
+  const scale = img.naturalHeight < OCR_MIN_HEIGHT_PX ? OCR_MIN_HEIGHT_PX / img.naturalHeight : 1;
+  const w = Math.max(1, Math.round(img.naturalWidth * scale));
+  const h = Math.max(1, Math.round(img.naturalHeight * scale));
+
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return blob;
+  ctx.drawImage(img, 0, 0, w, h);
+
+  const imageData = ctx.getImageData(0, 0, w, h);
+  const { data } = imageData;
+  const gray = new Uint8ClampedArray(w * h);
+  let min = 255;
+  let max = 0;
+  for (let i = 0; i < gray.length; i++) {
+    const px = i * 4;
+    const g = 0.299 * data[px] + 0.587 * data[px + 1] + 0.114 * data[px + 2];
+    gray[i] = g;
+    if (g < min) min = g;
+    if (g > max) max = g;
+  }
+  const range = Math.max(max - min, 1);
+  for (let i = 0; i < gray.length; i++) {
+    const stretched = ((gray[i] - min) / range) * 255;
+    const px = i * 4;
+    data[px] = data[px + 1] = data[px + 2] = stretched;
+  }
+  ctx.putImageData(imageData, 0, 0);
+
+  return new Promise((resolve) => {
+    canvas.toBlob((result) => resolve(result ?? blob), 'image/png');
+  });
+}
+
 async function handleOcrCapture(ev: Event): Promise<void> {
   const input = ev.target as HTMLInputElement;
   const file = input.files?.[0];
@@ -287,12 +341,20 @@ async function handleOcrCapture(ev: Event): Promise<void> {
 
   ocrBusy.value = true;
   try {
+    const preprocessed = await preprocessForOcr(croppedBlob).catch(() => croppedBlob!);
     const { createWorker, PSM } = await import('tesseract.js');
     const worker = await createWorker('eng');
     let text: string;
     try {
-      await worker.setParameters({ tessedit_pageseg_mode: PSM.SINGLE_LINE });
-      const { data } = await worker.recognize(croppedBlob);
+      // Known marketplace → its order numbers are digits-only or
+      // alphanumeric-only, never both — scoping Tesseract's character set to
+      // that cuts out its most common confusions (O/0, I/1/l, S/5, etc.).
+      const whitelist = orderNumberFormatRule.value?.charWhitelist;
+      await worker.setParameters({
+        tessedit_pageseg_mode: PSM.SINGLE_LINE,
+        ...(whitelist ? { tessedit_char_whitelist: whitelist } : {}),
+      });
+      const { data } = await worker.recognize(preprocessed);
       text = data.text.replace(/\s+/g, '').trim();
     } finally {
       await worker.terminate();
@@ -349,13 +411,16 @@ const lotTrackingWarnings = computed(() =>
 // Marketplace customers each have their own fixed order-number format on
 // their platform — matched by customer display name (BC customer records
 // are named after the marketplace, e.g. "Lazada Philippines Inc.").
-interface OrderNumberFormatRule { name: string; customerMatch: RegExp; pattern: RegExp; description: string; }
+const DIGITS_ONLY = '0123456789';
+const ALNUM_UPPER = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+
+interface OrderNumberFormatRule { name: string; customerMatch: RegExp; pattern: RegExp; description: string; charWhitelist: string; }
 const ORDER_NUMBER_FORMAT_RULES: OrderNumberFormatRule[] = [
-  { name: 'Lazada', customerMatch: /lazada/i, pattern: /^\d{16}$/, description: '16 digits' },
-  { name: 'Shopee', customerMatch: /shopee/i, pattern: /^[A-Za-z0-9]{14}$/, description: '14 letters/numbers' },
-  { name: 'TikTok', customerMatch: /tik\s*tok/i, pattern: /^\d{18}$/, description: '18 digits' },
-  { name: 'Zalora', customerMatch: /zalora/i, pattern: /^\d{9}$/, description: '9 digits' },
-  { name: 'Shopify', customerMatch: /shopify/i, pattern: /^[A-Za-z0-9]{6}$/, description: '6 letters/numbers' },
+  { name: 'Lazada', customerMatch: /lazada/i, pattern: /^\d{16}$/, description: '16 digits', charWhitelist: DIGITS_ONLY },
+  { name: 'Shopee', customerMatch: /shopee/i, pattern: /^[A-Za-z0-9]{14}$/, description: '14 letters/numbers', charWhitelist: ALNUM_UPPER },
+  { name: 'TikTok', customerMatch: /tik\s*tok/i, pattern: /^\d{18}$/, description: '18 digits', charWhitelist: DIGITS_ONLY },
+  { name: 'Zalora', customerMatch: /zalora/i, pattern: /^\d{9}$/, description: '9 digits', charWhitelist: DIGITS_ONLY },
+  { name: 'Shopify', customerMatch: /shopify/i, pattern: /^[A-Za-z0-9]{6}$/, description: '6 letters/numbers', charWhitelist: ALNUM_UPPER },
 ];
 
 const orderNumberFormatRule = computed(() => {

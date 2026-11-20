@@ -44,12 +44,13 @@
           <ion-label position="stacked">Order Number *</ion-label>
           <ion-input
             v-model="orderNumberInput"
-            placeholder="Enter the online order number"
+            :readonly="orderNumberLocked"
+            :placeholder="orderNumberLocked ? 'Tap the camera to scan the order number' : 'Enter the online order number'"
             @ion-input="sessionStore.setOrderNumber(orderNumberInput)"
           />
           <button
             type="button"
-            class="expiry-edit-btn"
+            class="ocr-scan-btn"
             slot="end"
             aria-label="Scan order number with camera"
             :title="cameraAvailable ? 'Scan order number with camera' : 'Camera unavailable — use manual input'"
@@ -68,6 +69,17 @@
             @change="handleOcrCapture"
           />
         </ion-item>
+        <p v-if="orderNumberLocked" class="order-no-hint">Scan the order number first — you can correct it after if the scan reads it wrong.</p>
+        <button
+          v-if="ocrAttempted && cameraAvailable"
+          type="button"
+          class="ocr-retry-btn"
+          :disabled="ocrBusy"
+          @click="triggerOcrCapture"
+        >
+          <ion-icon :icon="refreshOutline" />
+          Retry Scan
+        </button>
         <p v-if="orderNumberFormatError" class="order-no-error">{{ orderNumberFormatError }}</p>
 
         <div class="lines-section">
@@ -175,7 +187,7 @@ import {
   IonCardHeader, IonCardSubtitle, IonCardTitle, IonCardContent, IonItem, IonLabel, IonInput,
   IonList, IonButton, IonSpinner, IonIcon, popoverController, alertController,
 } from '@ionic/vue';
-import { checkmarkCircleOutline, createOutline, bugOutline, cameraOutline } from 'ionicons/icons';
+import { checkmarkCircleOutline, createOutline, bugOutline, cameraOutline, refreshOutline } from 'ionicons/icons';
 import { useRouter } from 'vue-router';
 import { useAuthStore } from '@/stores/auth.store';
 import { useSessionStore } from '@/stores/session.store';
@@ -200,6 +212,14 @@ const orderNumberInput = ref(session.value?.orderNumber ?? '');
 const ocrBusy = ref(false);
 const ocrFileInput = ref<HTMLInputElement | null>(null);
 const { cameraAvailable } = useCameraAvailability();
+// SOP: scan first, then edit if the OCR read is wrong. A resumed draft that
+// already has an order number (scanned or typed in an earlier session)
+// counts as already satisfying that — it doesn't get re-locked.
+const ocrAttempted = ref(!!session.value?.orderNumber?.trim());
+// Manual typing is only locked while there's actually a camera to scan
+// with — a device with no camera must fall straight through to manual
+// entry, never get stranded behind an SOP it can't satisfy.
+const orderNumberLocked = computed(() => !ocrAttempted.value && cameraAvailable.value);
 const submitting = ref(false);
 const submitError = ref<string | null>(null);
 const lastSubmitError = ref<unknown>(null);
@@ -220,6 +240,9 @@ async function triggerOcrCapture(): Promise<void> {
   // user tap through a picker that silently won't show a live camera.
   if (await isCameraPermissionDenied()) {
     void reportCameraError('ocr-order-number', new DOMException('Camera permission denied', 'NotAllowedError'), CAMERA_DENIED_MESSAGE);
+    // Genuinely can't scan — don't leave manual entry locked behind an SOP
+    // this device has no way to satisfy.
+    ocrAttempted.value = true;
     const alert = await alertController.create({
       header: 'Camera Unavailable',
       message: CAMERA_DENIED_MESSAGE,
@@ -238,6 +261,7 @@ async function handleOcrCapture(ev: Event): Promise<void> {
   if (!file) return;
 
   ocrBusy.value = true;
+  ocrAttempted.value = true;
   try {
     const { recognize } = await import('tesseract.js');
     const { data } = await recognize(file, 'eng');
@@ -512,6 +536,8 @@ function finishAndGoHome(): void {
     margin-right: 0;
   }
 
+  .order-no-hint { grid-column: 1; order: 2; }
+  .ocr-retry-btn { grid-column: 1; order: 2; }
   .order-no-error { grid-column: 1; order: 2; }
 
   .submit-error { grid-column: 1; order: 3; }
@@ -557,6 +583,68 @@ function finishAndGoHome(): void {
 
 .order-no-field {
   margin: 4px 16px 0;
+}
+
+.order-no-hint {
+  color: var(--app-text-muted);
+  font-size: var(--text-xs);
+  margin: 6px 16px 0;
+}
+
+/* ── OCR scan button — deliberately NOT a bare small icon. Solid,
+   high-contrast blue circle with a white glyph, same "primary action"
+   language as the barcode scanner's own toggle button, so scanning reads
+   as the main way to fill this field, not a hidden option. ── */
+.ocr-scan-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  margin-inline-end: 2px;
+  border: none;
+  border-radius: 50%;
+  background: var(--app-blue);
+  color: #ffffff;
+  font-size: 22px;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(36, 97, 168, 0.35);
+  transition: transform 0.15s var(--ease-out-quart), box-shadow 0.15s var(--ease-out-quart);
+  -webkit-tap-highlight-color: transparent;
+}
+
+.ocr-scan-btn:active {
+  transform: scale(0.94);
+}
+
+.ocr-scan-btn:disabled {
+  background: var(--app-border);
+  box-shadow: none;
+  cursor: not-allowed;
+}
+
+.ocr-retry-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 8px 16px 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--app-blue);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.ocr-retry-btn:disabled {
+  color: var(--app-text-muted);
+  cursor: not-allowed;
+}
+
+.ocr-retry-btn ion-icon {
+  font-size: 16px;
 }
 
 .order-no-error {

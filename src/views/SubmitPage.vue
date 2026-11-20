@@ -269,11 +269,63 @@ function loadImageFromBlob(blob: Blob): Promise<HTMLImageElement> {
   });
 }
 
-// Grayscale + contrast-stretch, upscaling small crops first — phone-camera
-// photos are often low-contrast/dim under indoor lighting, which is one of
-// the biggest real-world accuracy killers for OCR. Falls back to the raw
-// crop on any failure (e.g. canvas APIs misbehaving) rather than blocking
-// the scan over an optional accuracy boost.
+// Builds a summed-area table so any rectangle's pixel sum is an O(1) lookup
+// — makes the adaptive-threshold pass below (which needs a local average
+// around every single pixel) cheap enough to run on every pixel instead of
+// only a global one.
+function buildIntegralImage(gray: Uint8ClampedArray, w: number, h: number): Float64Array {
+  const stride = w + 1;
+  const integral = new Float64Array(stride * (h + 1));
+  for (let y = 0; y < h; y++) {
+    let rowSum = 0;
+    for (let x = 0; x < w; x++) {
+      rowSum += gray[y * w + x];
+      integral[(y + 1) * stride + (x + 1)] = integral[y * stride + (x + 1)] + rowSum;
+    }
+  }
+  return integral;
+}
+
+function boxSum(integral: Float64Array, w: number, h: number, x0: number, y0: number, x1: number, y1: number): number {
+  const cx0 = Math.max(0, x0);
+  const cy0 = Math.max(0, y0);
+  const cx1 = Math.min(w, x1);
+  const cy1 = Math.min(h, y1);
+  const stride = w + 1;
+  return integral[cy1 * stride + cx1] - integral[cy0 * stride + cx1] - integral[cy1 * stride + cx0] + integral[cy0 * stride + cx0];
+}
+
+// Local (adaptive) binarization — each pixel is judged against the average
+// brightness of its own neighborhood rather than the whole image, so an
+// unevenly lit or blurry/chromatic-noisy photo (shadows across the crop,
+// color fringing from camera shake) still resolves to clean black-on-white
+// text instead of one global threshold either missing faint strokes or
+// crushing a brighter corner to solid white/black.
+const ADAPTIVE_WINDOW_PX = 15; // neighborhood half-size, in post-upscale px
+const ADAPTIVE_BIAS = 8; // how much darker than the local mean counts as "ink"
+function adaptiveThreshold(gray: Uint8ClampedArray, w: number, h: number): Uint8ClampedArray {
+  const integral = buildIntegralImage(gray, w, h);
+  const out = new Uint8ClampedArray(w * h);
+  for (let y = 0; y < h; y++) {
+    const y0 = y - ADAPTIVE_WINDOW_PX;
+    const y1 = y + ADAPTIVE_WINDOW_PX + 1;
+    for (let x = 0; x < w; x++) {
+      const x0 = x - ADAPTIVE_WINDOW_PX;
+      const x1 = x + ADAPTIVE_WINDOW_PX + 1;
+      const count = (Math.min(w, x1) - Math.max(0, x0)) * (Math.min(h, y1) - Math.max(0, y0));
+      const localMean = boxSum(integral, w, h, x0, y0, x1, y1) / count;
+      out[y * w + x] = gray[y * w + x] < localMean - ADAPTIVE_BIAS ? 0 : 255;
+    }
+  }
+  return out;
+}
+
+// Grayscale → global contrast-stretch → adaptive threshold, upscaling small
+// crops first. Phone-camera photos are frequently dim/low-contrast and
+// unevenly lit, which (along with motion blur) is one of the biggest
+// real-world accuracy killers for OCR — this pipeline targets exactly that.
+// Falls back to the raw crop on any failure (e.g. canvas APIs misbehaving)
+// rather than blocking the scan over an optional accuracy boost.
 const OCR_MIN_HEIGHT_PX = 120;
 async function preprocessForOcr(blob: Blob): Promise<Blob> {
   const img = await loadImageFromBlob(blob);
@@ -302,9 +354,13 @@ async function preprocessForOcr(blob: Blob): Promise<Blob> {
   }
   const range = Math.max(max - min, 1);
   for (let i = 0; i < gray.length; i++) {
-    const stretched = ((gray[i] - min) / range) * 255;
+    gray[i] = ((gray[i] - min) / range) * 255;
+  }
+
+  const binary = adaptiveThreshold(gray, w, h);
+  for (let i = 0; i < binary.length; i++) {
     const px = i * 4;
-    data[px] = data[px + 1] = data[px + 2] = stretched;
+    data[px] = data[px + 1] = data[px + 2] = binary[i];
   }
   ctx.putImageData(imageData, 0, 0);
 
@@ -322,8 +378,8 @@ async function handleOcrCapture(ev: Event): Promise<void> {
   ocrAttempted.value = true;
 
   // Let the user pinpoint just the order number in the photo before OCR
-  // ever runs on it — cropping tight both avoids other printed text on the
-  // document confusing the read and lets recognition run in single-line mode.
+  // ever runs on it, so other printed text (or a barcode sitting right next
+  // to it, as on these labels) doesn't confuse the read.
   const imageUrl = URL.createObjectURL(file);
   let croppedBlob: Blob | null = null;
   try {
@@ -351,7 +407,13 @@ async function handleOcrCapture(ev: Event): Promise<void> {
       // that cuts out its most common confusions (O/0, I/1/l, S/5, etc.).
       const whitelist = orderNumberFormatRule.value?.charWhitelist;
       await worker.setParameters({
-        tessedit_pageseg_mode: PSM.SINGLE_LINE,
+        // SINGLE_BLOCK (not SINGLE_LINE): still reads just whatever's in the
+        // crop — one line, since that's what the user selected — but
+        // SINGLE_LINE's stricter assumption (the crop must be *exactly* one
+        // line with no surrounding margin) made Tesseract give up completely
+        // on real-world crops with a sliver of blank space or an adjacent
+        // barcode still inside the box.
+        tessedit_pageseg_mode: PSM.SINGLE_BLOCK,
         ...(whitelist ? { tessedit_char_whitelist: whitelist } : {}),
       });
       const { data } = await worker.recognize(preprocessed);
@@ -362,7 +424,7 @@ async function handleOcrCapture(ev: Event): Promise<void> {
     if (!text) {
       const alert = await alertController.create({
         header: 'No Text Found',
-        message: 'Could not read an order number from that selection. Try again with a tighter crop or a clearer, well-lit shot, or type it in manually.',
+        message: 'Could not read an order number from that selection. The photo may be too blurry or shaky for OCR even if it looks clear to you — try holding the camera steady without zooming in, with good lighting, or type the order number manually.',
         buttons: ['OK'],
       });
       await alert.present();

@@ -185,7 +185,7 @@ import { ref, computed } from 'vue';
 import {
   IonPage, IonHeader, IonToolbar, IonTitle, IonButtons, IonBackButton, IonContent, IonCard,
   IonCardHeader, IonCardSubtitle, IonCardTitle, IonCardContent, IonItem, IonLabel, IonInput,
-  IonList, IonButton, IonSpinner, IonIcon, popoverController, alertController,
+  IonList, IonButton, IonSpinner, IonIcon, popoverController, alertController, modalController,
 } from '@ionic/vue';
 import { checkmarkCircleOutline, createOutline, bugOutline, cameraOutline, refreshOutline } from 'ionicons/icons';
 import { useRouter } from 'vue-router';
@@ -198,6 +198,7 @@ import { formatDate, formatCurrency, isExpiringSoon } from '@/utils/format';
 import { generateId } from '@/utils/id';
 import LotEditorPopover from '@/components/LotEditorPopover.vue';
 import QuantityEditorPopover from '@/components/QuantityEditorPopover.vue';
+import OcrCropModal from '@/components/OcrCropModal.vue';
 import { useCameraAvailability, isCameraPermissionDenied, reportCameraError, getCameraDeniedGuidance } from '@/composables/useCameraTroubleshoot';
 import type { FoodSalesOrderResult, OrderHistoryLine, OrderLine } from '@/types';
 
@@ -264,16 +265,42 @@ async function handleOcrCapture(ev: Event): Promise<void> {
   input.value = '';
   if (!file) return;
 
-  ocrBusy.value = true;
   ocrAttempted.value = true;
+
+  // Let the user pinpoint just the order number in the photo before OCR
+  // ever runs on it — cropping tight both avoids other printed text on the
+  // document confusing the read and lets recognition run in single-line mode.
+  const imageUrl = URL.createObjectURL(file);
+  let croppedBlob: Blob | null = null;
   try {
-    const { recognize } = await import('tesseract.js');
-    const { data } = await recognize(file, 'eng');
-    const text = data.text.replace(/\s+/g, '').trim();
+    const modal = await modalController.create({
+      component: OcrCropModal,
+      componentProps: { imageSrc: imageUrl },
+    });
+    await modal.present();
+    const { data, role } = await modal.onDidDismiss<Blob>();
+    if (role === 'confirm' && data) croppedBlob = data;
+  } finally {
+    URL.revokeObjectURL(imageUrl);
+  }
+  if (!croppedBlob) return; // user cancelled the crop step — same as cancelling the scan
+
+  ocrBusy.value = true;
+  try {
+    const { createWorker, PSM } = await import('tesseract.js');
+    const worker = await createWorker('eng');
+    let text: string;
+    try {
+      await worker.setParameters({ tessedit_pageseg_mode: PSM.SINGLE_LINE });
+      const { data } = await worker.recognize(croppedBlob);
+      text = data.text.replace(/\s+/g, '').trim();
+    } finally {
+      await worker.terminate();
+    }
     if (!text) {
       const alert = await alertController.create({
         header: 'No Text Found',
-        message: 'Could not read an order number from that photo. Try again with a clearer, well-lit shot, or type it in manually.',
+        message: 'Could not read an order number from that selection. Try again with a tighter crop or a clearer, well-lit shot, or type it in manually.',
         buttons: ['OK'],
       });
       await alert.present();

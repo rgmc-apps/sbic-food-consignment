@@ -5,7 +5,8 @@
   "scripts": {
     "dev": "vite",
     "build": "vue-tsc && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "deploy:status": "pwsh ./scripts/check-deploy.ps1"
   },
   "dependencies": {
     "@ionic/vue": "^8.3.0",
@@ -13,8 +14,9 @@
     "axios": "^1.7.2",
     "bcryptjs": "^3.0.3",
     "ionicons": "^7.4.0",
+    "onnxruntime-web": "^1.31.1",
     "pinia": "^2.1.7",
-    "tesseract.js": "^7.0.0",
+    "ppu-paddle-ocr": "^6.7.1",
     "vue": "^3.4.21",
     "vue-router": "^4.3.3"
   },

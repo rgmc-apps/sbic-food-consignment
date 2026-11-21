@@ -40,6 +40,19 @@ export const useAppUpdateStore = defineStore('appUpdate', () => {
   // Pinia stores are already singletons, but App.vue's onMounted can still
   // re-run across hot reloads in dev — `started` keeps that from stacking
   // up duplicate intervals/listeners.
+  //
+  // A device with this app added to the home screen (Chrome's "Install" /
+  // "Add to Shortcut") is exactly the case the poll above can't reach: once
+  // backgrounded, Android throttles or fully suspends JS timers, so the
+  // 10-minute interval effectively doesn't run until the user is back in the
+  // app anyway — reopening it is what has to trigger the check, not the
+  // timer. visibilitychange covers most of that, but isn't guaranteed to
+  // fire for every way Android resumes a suspended session, so two more
+  // standard resume signals back it up: `pageshow` with `persisted: true`
+  // (the page was restored from the back/forward cache rather than freshly
+  // loaded — the common case for "reopened after being backgrounded a
+  // while") and a plain `focus` (some installed/shortcut launch surfaces
+  // fire window focus more reliably than document visibilitychange).
   function start(): void {
     if (started) return;
     started = true;
@@ -48,6 +61,10 @@ export const useAppUpdateStore = defineStore('appUpdate', () => {
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'visible') checkNow();
     });
+    window.addEventListener('pageshow', (ev) => {
+      if (ev.persisted) checkNow();
+    });
+    window.addEventListener('focus', checkNow);
   }
 
   function stop(): void {

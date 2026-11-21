@@ -43,6 +43,7 @@
         <ion-item lines="none" class="order-no-field">
           <ion-label position="stacked">Order Number *</ion-label>
           <ion-input
+            ref="orderNumberInputEl"
             v-model="orderNumberInput"
             :readonly="orderNumberLocked"
             :placeholder="orderNumberLocked ? 'Tap the camera to scan the order number' : 'Enter the online order number'"
@@ -70,16 +71,27 @@
           />
         </ion-item>
         <p v-if="orderNumberLocked" class="order-no-hint">Scan the order number first — you can correct it after if the scan reads it wrong.</p>
-        <button
-          v-if="ocrAttempted && cameraAvailable"
-          type="button"
-          class="ocr-retry-btn"
-          :disabled="ocrBusy"
-          @click="triggerOcrCapture"
-        >
-          <ion-icon :icon="refreshOutline" />
-          Retry Scan
-        </button>
+        <div v-if="cameraAvailable" class="ocr-action-row">
+          <button
+            v-if="ocrAttempted"
+            type="button"
+            class="ocr-retry-btn"
+            :disabled="ocrBusy"
+            @click="triggerOcrCapture"
+          >
+            <ion-icon :icon="refreshOutline" />
+            Retry Scan
+          </button>
+          <button
+            type="button"
+            class="ocr-retry-btn"
+            :disabled="ocrBusy"
+            @click="enableManualEntry"
+          >
+            <ion-icon :icon="createOutline" />
+            Enter Manually
+          </button>
+        </div>
         <p v-if="orderNumberFormatError" class="order-no-error">{{ orderNumberFormatError }}</p>
 
         <div class="lines-section">
@@ -181,7 +193,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue';
+import { ref, computed, nextTick } from 'vue';
 import {
   IonPage, IonHeader, IonToolbar, IonTitle, IonButtons, IonBackButton, IonContent, IonCard,
   IonCardHeader, IonCardSubtitle, IonCardTitle, IonCardContent, IonItem, IonLabel, IonInput,
@@ -211,6 +223,7 @@ const { openReport } = useErrorReporter();
 const session = computed(() => sessionStore.currentSession);
 
 const orderNumberInput = ref(session.value?.orderNumber ?? '');
+const orderNumberInputEl = ref<InstanceType<typeof IonInput> | null>(null);
 const ocrBusy = ref(false);
 const ocrFileInput = ref<HTMLInputElement | null>(null);
 const { cameraAvailable } = useCameraAvailability();
@@ -235,6 +248,16 @@ if (settingsStore.showItemPrices && session.value?.lines.length) {
     .catch(() => { /* ignore — prices just won't show */ });
 }
 const result = ref<FoodSalesOrderResult | null>(null);
+
+// Explicit escape hatch from the "scan first" SOP — for whenever OCR just
+// isn't going to work (damaged label, no signal to download the model,
+// stuck misreading the same photo) rather than making the user fight
+// through failed scans before the field quietly unlocks on its own.
+async function enableManualEntry(): Promise<void> {
+  ocrAttempted.value = true;
+  await nextTick();
+  await orderNumberInputEl.value?.$el.setFocus();
+}
 
 async function triggerOcrCapture(): Promise<void> {
   // Known-blocked permission — skip opening a camera UI we already know is
@@ -270,96 +293,16 @@ function loadImageFromBlob(blob: Blob): Promise<HTMLImageElement> {
   });
 }
 
-// Builds a summed-area table so any rectangle's pixel sum is an O(1) lookup
-// — makes the adaptive-threshold pass below (which needs a local average
-// around every single pixel) cheap enough to run on every pixel instead of
-// only a global one.
-function buildIntegralImage(gray: Uint8ClampedArray, w: number, h: number): Float64Array {
-  const stride = w + 1;
-  const integral = new Float64Array(stride * (h + 1));
-  for (let y = 0; y < h; y++) {
-    let rowSum = 0;
-    for (let x = 0; x < w; x++) {
-      rowSum += gray[y * w + x];
-      integral[(y + 1) * stride + (x + 1)] = integral[y * stride + (x + 1)] + rowSum;
-    }
-  }
-  return integral;
-}
-
-function boxSum(integral: Float64Array, w: number, h: number, x0: number, y0: number, x1: number, y1: number): number {
-  const cx0 = Math.max(0, x0);
-  const cy0 = Math.max(0, y0);
-  const cx1 = Math.min(w, x1);
-  const cy1 = Math.min(h, y1);
-  const stride = w + 1;
-  return integral[cy1 * stride + cx1] - integral[cy0 * stride + cx1] - integral[cy1 * stride + cx0] + integral[cy0 * stride + cx0];
-}
-
-// Mean of every pixel's own `radius`-sized neighborhood, via the integral
-// image above — one O(1)-per-pixel pass, reused below both as a denoise
-// blur, as the "soft" reference an unsharp mask sharpens against, and as
-// the local-mean threshold adaptiveThreshold compares each pixel to.
-function boxBlur(gray: Uint8ClampedArray, w: number, h: number, radius: number): Uint8ClampedArray {
-  const integral = buildIntegralImage(gray, w, h);
-  const out = new Uint8ClampedArray(w * h);
-  for (let y = 0; y < h; y++) {
-    const y0 = y - radius;
-    const y1 = y + radius + 1;
-    for (let x = 0; x < w; x++) {
-      const x0 = x - radius;
-      const x1 = x + radius + 1;
-      const count = (Math.min(w, x1) - Math.max(0, x0)) * (Math.min(h, y1) - Math.max(0, y0));
-      out[y * w + x] = boxSum(integral, w, h, x0, y0, x1, y1) / count;
-    }
-  }
-  return out;
-}
-
-// Light denoise (kills JPEG/chromatic speckle a sharpen pass would
-// otherwise amplify) followed by an unsharp mask: pixels pull away from a
-// locally-blurred reference of themselves, exaggerating edges — the single
-// most direct counter to the soft/motion-blurred text real phone photos
-// produce. Can't undo severe blur, but meaningfully recovers mild-to-moderate
-// softness before thresholding.
-const DENOISE_RADIUS_PX = 1;
-const SHARPEN_RADIUS_PX = 2;
-const SHARPEN_AMOUNT = 1.2;
-function sharpen(gray: Uint8ClampedArray, w: number, h: number): Uint8ClampedArray {
-  const denoised = boxBlur(gray, w, h, DENOISE_RADIUS_PX);
-  const soft = boxBlur(denoised, w, h, SHARPEN_RADIUS_PX);
-  const out = new Uint8ClampedArray(w * h);
-  for (let i = 0; i < denoised.length; i++) {
-    out[i] = denoised[i] + SHARPEN_AMOUNT * (denoised[i] - soft[i]); // Uint8ClampedArray clamps to [0,255]
-  }
-  return out;
-}
-
-// Local (adaptive) binarization — each pixel is judged against the average
-// brightness of its own neighborhood rather than the whole image, so an
-// unevenly lit or blurry/chromatic-noisy photo (shadows across the crop,
-// color fringing from camera shake) still resolves to clean black-on-white
-// text instead of one global threshold either missing faint strokes or
-// crushing a brighter corner to solid white/black.
-const ADAPTIVE_WINDOW_PX = 15; // neighborhood half-size, in post-upscale px
-const ADAPTIVE_BIAS = 8; // how much darker than the local mean counts as "ink"
-function adaptiveThreshold(gray: Uint8ClampedArray, w: number, h: number): Uint8ClampedArray {
-  const localMean = boxBlur(gray, w, h, ADAPTIVE_WINDOW_PX);
-  const out = new Uint8ClampedArray(w * h);
-  for (let i = 0; i < gray.length; i++) {
-    out[i] = gray[i] < localMean[i] - ADAPTIVE_BIAS ? 0 : 255;
-  }
-  return out;
-}
-
-// Grayscale → contrast-stretch → denoise/sharpen → adaptive threshold,
-// upscaling small crops first (with high-quality interpolation, so the
-// upscale itself doesn't add more blur than it fixes). Phone-camera photos
-// are frequently dim, unevenly lit, noisy, and soft-focus/motion-blurred —
-// together the single biggest real-world accuracy killer for OCR — so this
-// pipeline targets exactly that, in the order each step most helps the next.
-// PP-OCR's own docs recommend grayscale/thresholded input, so the result is
-// handed to it directly as a canvas rather than converted to a Blob.
+// Upscale small crops only — no grayscale/contrast/sharpen/binarize. PP-OCR
+// is a deep-learning recognizer trained on natural camera photos, not the
+// classical connected-component pipeline Tesseract used (which benefited
+// from manual binarization); ppu-paddle-ocr's own docs report its *defaults*
+// reading camera photos at 99.5% accuracy and explicitly warn that a manual
+// pixel-level trick (pre-inverting dark-theme text) hurt their own test
+// accuracy rather than helping. Our earlier binarization pipeline was
+// carried over from the Tesseract setup and was very likely doing the same
+// kind of harm here, so it's gone — this now matches the library's own
+// recommended "just feed it the photo" usage.
 const OCR_MIN_HEIGHT_PX = 120;
 async function preprocessForOcr(blob: Blob): Promise<HTMLCanvasElement> {
   const img = await loadImageFromBlob(blob);
@@ -375,31 +318,6 @@ async function preprocessForOcr(blob: Blob): Promise<HTMLCanvasElement> {
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = 'high';
   ctx.drawImage(img, 0, 0, w, h);
-
-  const imageData = ctx.getImageData(0, 0, w, h);
-  const { data } = imageData;
-  const gray = new Uint8ClampedArray(w * h);
-  let min = 255;
-  let max = 0;
-  for (let i = 0; i < gray.length; i++) {
-    const px = i * 4;
-    const g = 0.299 * data[px] + 0.587 * data[px + 1] + 0.114 * data[px + 2];
-    gray[i] = g;
-    if (g < min) min = g;
-    if (g > max) max = g;
-  }
-  const range = Math.max(max - min, 1);
-  for (let i = 0; i < gray.length; i++) {
-    gray[i] = ((gray[i] - min) / range) * 255;
-  }
-
-  const sharpened = sharpen(gray, w, h);
-  const binary = adaptiveThreshold(sharpened, w, h);
-  for (let i = 0; i < binary.length; i++) {
-    const px = i * 4;
-    data[px] = data[px + 1] = data[px + 2] = binary[i];
-  }
-  ctx.putImageData(imageData, 0, 0);
 
   return canvas;
 }
@@ -435,9 +353,8 @@ async function handleOcrCapture(ev: Event): Promise<void> {
     // PP-OCR (deep-learning detector+recognizer) reads real-world photos far
     // more reliably than Tesseract's classical pipeline — this replaced
     // tesseract.js after it kept missing clearly-legible but blurry/skewed
-    // phone photos. It still works best on grayscale/thresholded input (the
-    // library's own docs recommend this), so the same preprocessing pipeline
-    // stays in place, just handed to a canvas instead of converted to a Blob.
+    // phone photos. Unlike Tesseract, it wants the photo close to as-is (see
+    // preprocessForOcr) — only upscaled, not binarized.
     const canvas = await preprocessForOcr(croppedBlob);
     const service = await getOcrService();
     const result = await service.recognize(canvas);
@@ -713,7 +630,7 @@ function finishAndGoHome(): void {
   }
 
   .order-no-hint { grid-column: 1; order: 2; }
-  .ocr-retry-btn { grid-column: 1; order: 2; }
+  .ocr-action-row { grid-column: 1; order: 2; }
   .order-no-error { grid-column: 1; order: 2; }
 
   .submit-error { grid-column: 1; order: 3; }
@@ -799,11 +716,17 @@ function finishAndGoHome(): void {
   cursor: not-allowed;
 }
 
+.ocr-action-row {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  margin: 8px 16px 0;
+}
+
 .ocr-retry-btn {
   display: flex;
   align-items: center;
   gap: 6px;
-  margin: 8px 16px 0;
   padding: 0;
   border: none;
   background: transparent;

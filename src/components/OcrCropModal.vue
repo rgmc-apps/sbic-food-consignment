@@ -12,10 +12,12 @@
     </ion-header>
 
     <ion-content class="crop-content" :scroll-y="false">
-      <p class="crop-hint">Drag the box over just the order number, then tap "Use This Area".</p>
-      <div class="crop-stage">
-        <img ref="imgEl" :src="imageSrc" class="crop-image" @load="onImageLoad" />
-        <div v-if="ready" class="crop-box" :style="boxStyle" @pointerdown="startDrag($event, 'move')">
+      <p class="crop-hint">
+        {{ hasBox ? 'Drag the box or its corners, then tap "Use This Area".' : 'Tap and drag over the order number to select it.' }}
+      </p>
+      <div class="crop-stage" @pointerdown="onStagePointerDown">
+        <img ref="imgEl" :src="imageSrc" class="crop-image" />
+        <div v-if="hasBox" class="crop-box" :style="boxStyle" @pointerdown.stop="startDrag($event, 'move')">
           <div class="crop-handle crop-handle--tl" @pointerdown.stop="startDrag($event, 'tl')" />
           <div class="crop-handle crop-handle--tr" @pointerdown.stop="startDrag($event, 'tr')" />
           <div class="crop-handle crop-handle--bl" @pointerdown.stop="startDrag($event, 'bl')" />
@@ -26,7 +28,7 @@
 
     <ion-footer>
       <ion-toolbar>
-        <ion-button expand="block" :disabled="!ready" @click="confirm">Use This Area</ion-button>
+        <ion-button expand="block" :disabled="!hasBox" @click="confirm">Use This Area</ion-button>
       </ion-toolbar>
     </ion-footer>
   </ion-page>
@@ -46,7 +48,7 @@ import { closeOutline } from 'ionicons/icons';
 defineProps<{ imageSrc: string }>();
 
 const imgEl = ref<HTMLImageElement | null>(null);
-const ready = ref(false);
+const hasBox = ref(false);
 
 // Selection box, in on-screen CSS pixels relative to the rendered <img>'s
 // own top-left corner — converted to the image's natural (full-resolution)
@@ -60,19 +62,14 @@ const boxStyle = computed(() => ({
   height: `${box.h}px`,
 }));
 
-function onImageLoad(): void {
-  const rect = imgEl.value!.getBoundingClientRect();
-  // Default to a horizontal strip across the middle — order numbers are
-  // printed as a single line, so this starting guess is usually already
-  // close; the user just nudges it.
-  box.w = rect.width * 0.8;
-  box.h = Math.min(rect.height * 0.18, 80);
-  box.x = (rect.width - box.w) / 2;
-  box.y = (rect.height - box.h) / 2;
-  ready.value = true;
-}
-
-type DragMode = 'move' | 'tl' | 'tr' | 'bl' | 'br';
+// No auto-placed default box — a box computed from the image's layout
+// right after the photo loads could land using stale/mid-transition
+// dimensions (the modal is still animating in, or layout hasn't settled
+// yet) and end up positioned outside the visible image entirely. Letting
+// the user draw the box themselves, live against whatever they're actually
+// touching, makes that class of bug impossible: the coordinates are always
+// read at the moment of interaction, never guessed ahead of it.
+type DragMode = 'draw' | 'move' | 'tl' | 'tr' | 'bl' | 'br';
 const MIN_SIZE = 24;
 let dragMode: DragMode | null = null;
 let dragStartPointer = { x: 0, y: 0 };
@@ -80,6 +77,22 @@ let dragStartBox = { x: 0, y: 0, w: 0, h: 0 };
 
 function clamp(v: number, min: number, max: number): number {
   return Math.min(Math.max(v, min), Math.max(min, max));
+}
+
+// Starting a drag directly on the stage (not on the existing box or a
+// handle, both of which stop this from firing) begins drawing a brand-new
+// box from scratch, replacing any box already there.
+function onStagePointerDown(ev: PointerEvent): void {
+  if (!imgEl.value) return;
+  const rect = imgEl.value.getBoundingClientRect();
+  const x = clamp(ev.clientX - rect.left, 0, rect.width);
+  const y = clamp(ev.clientY - rect.top, 0, rect.height);
+  box.x = x;
+  box.y = y;
+  box.w = 0;
+  box.h = 0;
+  hasBox.value = true;
+  startDrag(ev, 'draw');
 }
 
 function startDrag(ev: PointerEvent, mode: DragMode): void {
@@ -102,6 +115,18 @@ function onDrag(ev: PointerEvent): void {
     return;
   }
 
+  if (dragMode === 'draw') {
+    // Rubber-band select: the box spans from the fixed start corner to
+    // wherever the pointer is now, in any direction, clamped to the image.
+    const curX = clamp(ev.clientX - rect.left, 0, rect.width);
+    const curY = clamp(ev.clientY - rect.top, 0, rect.height);
+    box.x = Math.min(dragStartBox.x, curX);
+    box.y = Math.min(dragStartBox.y, curY);
+    box.w = Math.abs(curX - dragStartBox.x);
+    box.h = Math.abs(curY - dragStartBox.y);
+    return;
+  }
+
   let { x, y, w, h } = dragStartBox;
   if (dragMode.includes('l')) { x = dragStartBox.x + dx; w = dragStartBox.w - dx; }
   if (dragMode.includes('r')) { w = dragStartBox.w + dx; }
@@ -118,6 +143,11 @@ function onDrag(ev: PointerEvent): void {
 }
 
 function endDrag(): void {
+  // A tap (or a drag too small to be deliberate) draws nothing — require an
+  // actual deliberate selection before "Use This Area" lights up.
+  if (dragMode === 'draw' && (box.w < MIN_SIZE || box.h < MIN_SIZE)) {
+    hasBox.value = false;
+  }
   dragMode = null;
   window.removeEventListener('pointermove', onDrag);
 }
@@ -130,16 +160,29 @@ function cancel(): void {
   modalController.dismiss(null, 'cancel');
 }
 
+// A pixel-tight crop can clip the very strokes at its own edge, which reads
+// to the OCR detector as "nothing here" and truncates or drops characters
+// right at the border — padding the selection a bit past exactly what was
+// drawn gives the detector breathing room around the text instead.
+const CROP_PAD_RATIO = 0.15;
+
 function confirm(): void {
   const img = imgEl.value!;
   const rect = img.getBoundingClientRect();
   const scaleX = img.naturalWidth / rect.width;
   const scaleY = img.naturalHeight / rect.height;
 
-  const sx = box.x * scaleX;
-  const sy = box.y * scaleY;
-  const sw = box.w * scaleX;
-  const sh = box.h * scaleY;
+  const padX = box.w * CROP_PAD_RATIO;
+  const padY = box.h * CROP_PAD_RATIO;
+  const x0 = clamp(box.x - padX, 0, rect.width);
+  const y0 = clamp(box.y - padY, 0, rect.height);
+  const x1 = clamp(box.x + box.w + padX, 0, rect.width);
+  const y1 = clamp(box.y + box.h + padY, 0, rect.height);
+
+  const sx = x0 * scaleX;
+  const sy = y0 * scaleY;
+  const sw = (x1 - x0) * scaleX;
+  const sh = (y1 - y0) * scaleY;
 
   const canvas = document.createElement('canvas');
   canvas.width = sw;

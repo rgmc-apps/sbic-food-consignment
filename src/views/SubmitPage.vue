@@ -83,6 +83,16 @@
             Retry Scan
           </button>
           <button
+            v-if="lastCroppedImage"
+            type="button"
+            class="ocr-retry-btn"
+            :disabled="ocrBusy"
+            @click="retryCharacterRead"
+          >
+            <ion-icon :icon="textOutline" />
+            Retry Character Read
+          </button>
+          <button
             type="button"
             class="ocr-retry-btn"
             :disabled="ocrBusy"
@@ -199,7 +209,7 @@ import {
   IonCardHeader, IonCardSubtitle, IonCardTitle, IonCardContent, IonItem, IonLabel, IonInput,
   IonList, IonButton, IonSpinner, IonIcon, popoverController, alertController, modalController,
 } from '@ionic/vue';
-import { checkmarkCircleOutline, createOutline, bugOutline, cameraOutline, refreshOutline } from 'ionicons/icons';
+import { checkmarkCircleOutline, createOutline, bugOutline, cameraOutline, refreshOutline, textOutline } from 'ionicons/icons';
 import { useRouter } from 'vue-router';
 import { useAuthStore } from '@/stores/auth.store';
 import { useSessionStore } from '@/stores/session.store';
@@ -226,6 +236,11 @@ const orderNumberInput = ref(session.value?.orderNumber ?? '');
 const orderNumberInputEl = ref<InstanceType<typeof IonInput> | null>(null);
 const ocrBusy = ref(false);
 const ocrFileInput = ref<HTMLInputElement | null>(null);
+// The last cropped photo, kept so "Retry Character Read" can re-run just
+// recognition (useful since the model result can vary run to run, and the
+// photo/crop usually isn't the problem) without making the user re-take or
+// re-crop the picture.
+const lastCroppedImage = ref<Blob | null>(null);
 const { cameraAvailable } = useCameraAvailability();
 // SOP: scan first, then edit if the OCR read is wrong. A resumed draft that
 // already has an order number (scanned or typed in an earlier session)
@@ -255,6 +270,8 @@ const result = ref<FoodSalesOrderResult | null>(null);
 // through failed scans before the field quietly unlocks on its own.
 async function enableManualEntry(): Promise<void> {
   ocrAttempted.value = true;
+  orderNumberInput.value = '';
+  sessionStore.setOrderNumber('');
   await nextTick();
   await orderNumberInputEl.value?.$el.setFocus();
 }
@@ -322,6 +339,45 @@ async function preprocessForOcr(blob: Blob): Promise<HTMLCanvasElement> {
   return canvas;
 }
 
+// Shared by both a fresh capture and "Retry Character Read" — the latter
+// re-runs this exact same recognition step against the same already-cropped
+// photo, since the model's read can vary run to run and the photo/crop
+// itself usually isn't what's wrong.
+async function runOcrOnCrop(croppedBlob: Blob): Promise<void> {
+  ocrBusy.value = true;
+  try {
+    // PP-OCR (deep-learning detector+recognizer) reads real-world photos far
+    // more reliably than Tesseract's classical pipeline — this replaced
+    // tesseract.js after it kept missing clearly-legible but blurry/skewed
+    // phone photos. Unlike Tesseract, it wants the photo close to as-is (see
+    // preprocessForOcr) — only upscaled, not binarized.
+    const canvas = await preprocessForOcr(croppedBlob);
+    const service = await getOcrService();
+    const result = await service.recognize(canvas);
+    const text = normalizeOcrText(result.text, orderNumberFormatRule.value);
+    if (!text) {
+      const alert = await alertController.create({
+        header: 'No Text Found',
+        message: 'Could not read an order number from that selection. The photo may be too blurry or shaky for OCR even if it looks clear to you — try holding the camera steady without zooming in, with good lighting, or type the order number manually.',
+        buttons: ['OK'],
+      });
+      await alert.present();
+      return;
+    }
+    orderNumberInput.value = text;
+    sessionStore.setOrderNumber(text);
+  } catch {
+    const alert = await alertController.create({
+      header: 'Scan Failed',
+      message: 'Something went wrong reading that photo. Try again or type the order number manually.',
+      buttons: ['OK'],
+    });
+    await alert.present();
+  } finally {
+    ocrBusy.value = false;
+  }
+}
+
 async function handleOcrCapture(ev: Event): Promise<void> {
   const input = ev.target as HTMLInputElement;
   const file = input.files?.[0];
@@ -348,38 +404,15 @@ async function handleOcrCapture(ev: Event): Promise<void> {
   }
   if (!croppedBlob) return; // user cancelled the crop step — same as cancelling the scan
 
-  ocrBusy.value = true;
-  try {
-    // PP-OCR (deep-learning detector+recognizer) reads real-world photos far
-    // more reliably than Tesseract's classical pipeline — this replaced
-    // tesseract.js after it kept missing clearly-legible but blurry/skewed
-    // phone photos. Unlike Tesseract, it wants the photo close to as-is (see
-    // preprocessForOcr) — only upscaled, not binarized.
-    const canvas = await preprocessForOcr(croppedBlob);
-    const service = await getOcrService();
-    const result = await service.recognize(canvas);
-    const text = result.text.replace(/\s+/g, '').trim();
-    if (!text) {
-      const alert = await alertController.create({
-        header: 'No Text Found',
-        message: 'Could not read an order number from that selection. The photo may be too blurry or shaky for OCR even if it looks clear to you — try holding the camera steady without zooming in, with good lighting, or type the order number manually.',
-        buttons: ['OK'],
-      });
-      await alert.present();
-      return;
-    }
-    orderNumberInput.value = text;
-    sessionStore.setOrderNumber(text);
-  } catch {
-    const alert = await alertController.create({
-      header: 'Scan Failed',
-      message: 'Something went wrong reading that photo. Try again or type the order number manually.',
-      buttons: ['OK'],
-    });
-    await alert.present();
-  } finally {
-    ocrBusy.value = false;
-  }
+  lastCroppedImage.value = croppedBlob;
+  await runOcrOnCrop(croppedBlob);
+}
+
+// Re-reads the same cropped photo already on file — no new photo, no new
+// crop step, just another recognition pass.
+async function retryCharacterRead(): Promise<void> {
+  if (!lastCroppedImage.value) return;
+  await runOcrOnCrop(lastCroppedImage.value);
 }
 
 // Matches two known number-series config issues, neither fixed by retrying:
@@ -411,19 +444,35 @@ const lotTrackingWarnings = computed(() =>
 // Marketplace customers each have their own fixed order-number format on
 // their platform — matched by customer display name (BC customer records
 // are named after the marketplace, e.g. "Lazada Philippines Inc.").
-interface OrderNumberFormatRule { name: string; customerMatch: RegExp; pattern: RegExp; description: string; }
+interface OrderNumberFormatRule { name: string; customerMatch: RegExp; pattern: RegExp; description: string; digitsOnly: boolean; }
 const ORDER_NUMBER_FORMAT_RULES: OrderNumberFormatRule[] = [
-  { name: 'Lazada', customerMatch: /lazada/i, pattern: /^\d{16}$/, description: '16 digits' },
-  { name: 'Shopee', customerMatch: /shopee/i, pattern: /^[A-Za-z0-9]{14}$/, description: '14 letters/numbers' },
-  { name: 'TikTok', customerMatch: /tik\s*tok/i, pattern: /^\d{18}$/, description: '18 digits' },
-  { name: 'Zalora', customerMatch: /zalora/i, pattern: /^\d{9}$/, description: '9 digits' },
-  { name: 'Shopify', customerMatch: /shopify/i, pattern: /^[A-Za-z0-9]{6}$/, description: '6 letters/numbers' },
+  { name: 'Lazada', customerMatch: /lazada/i, pattern: /^\d{16}$/, description: '16 digits', digitsOnly: true },
+  { name: 'Shopee', customerMatch: /shopee/i, pattern: /^[A-Za-z0-9]{14}$/, description: '14 letters/numbers', digitsOnly: false },
+  { name: 'TikTok', customerMatch: /tik\s*tok/i, pattern: /^\d{18}$/, description: '18 digits', digitsOnly: true },
+  { name: 'Zalora', customerMatch: /zalora/i, pattern: /^\d{9}$/, description: '9 digits', digitsOnly: true },
+  { name: 'Shopify', customerMatch: /shopify/i, pattern: /^[A-Za-z0-9]{6}$/, description: '6 letters/numbers', digitsOnly: false },
 ];
 
 const orderNumberFormatRule = computed(() => {
   const name = session.value?.customer?.displayName ?? '';
   return ORDER_NUMBER_FORMAT_RULES.find((r) => r.customerMatch.test(name)) ?? null;
 });
+
+// OCR cleanup: strip anything that isn't a letter/digit (stray punctuation
+// the model sometimes injects), then for formats known to be digits-only,
+// correct the handful of letter/digit shapes OCR confuses most often —
+// cuts out the single biggest source of "almost right" reads for those
+// marketplaces without guessing at anything for formats that mix letters
+// and numbers, where a "fix" could just as easily turn a correct letter
+// into a wrong digit.
+const DIGIT_LOOKALIKES: Record<string, string> = { O: '0', I: '1', L: '1', S: '5', B: '8', Z: '2' };
+function normalizeOcrText(raw: string, rule: OrderNumberFormatRule | null): string {
+  let text = raw.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+  if (rule?.digitsOnly) {
+    text = text.replace(/[A-Z]/g, (ch) => DIGIT_LOOKALIKES[ch] ?? ch);
+  }
+  return text;
+}
 
 const orderNumberFormatError = computed(() => {
   const rule = orderNumberFormatRule.value;
@@ -718,8 +767,9 @@ function finishAndGoHome(): void {
 
 .ocr-action-row {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 20px;
+  gap: 8px 20px;
   margin: 8px 16px 0;
 }
 

@@ -199,6 +199,7 @@ import { generateId } from '@/utils/id';
 import LotEditorPopover from '@/components/LotEditorPopover.vue';
 import QuantityEditorPopover from '@/components/QuantityEditorPopover.vue';
 import OcrCropModal from '@/components/OcrCropModal.vue';
+import { getOcrService } from '@/services/ocr.service';
 import { useCameraAvailability, isCameraPermissionDenied, reportCameraError, getCameraDeniedGuidance } from '@/composables/useCameraTroubleshoot';
 import type { FoodSalesOrderResult, OrderHistoryLine, OrderLine } from '@/types';
 
@@ -356,11 +357,11 @@ function adaptiveThreshold(gray: Uint8ClampedArray, w: number, h: number): Uint8
 // upscale itself doesn't add more blur than it fixes). Phone-camera photos
 // are frequently dim, unevenly lit, noisy, and soft-focus/motion-blurred —
 // together the single biggest real-world accuracy killer for OCR — so this
-// pipeline targets exactly that, in the order each step most helps the
-// next. Falls back to the raw crop on any failure (e.g. canvas APIs
-// misbehaving) rather than blocking the scan over an optional accuracy boost.
+// pipeline targets exactly that, in the order each step most helps the next.
+// PP-OCR's own docs recommend grayscale/thresholded input, so the result is
+// handed to it directly as a canvas rather than converted to a Blob.
 const OCR_MIN_HEIGHT_PX = 120;
-async function preprocessForOcr(blob: Blob): Promise<Blob> {
+async function preprocessForOcr(blob: Blob): Promise<HTMLCanvasElement> {
   const img = await loadImageFromBlob(blob);
   const scale = img.naturalHeight < OCR_MIN_HEIGHT_PX ? OCR_MIN_HEIGHT_PX / img.naturalHeight : 1;
   const w = Math.max(1, Math.round(img.naturalWidth * scale));
@@ -370,7 +371,7 @@ async function preprocessForOcr(blob: Blob): Promise<Blob> {
   canvas.width = w;
   canvas.height = h;
   const ctx = canvas.getContext('2d');
-  if (!ctx) return blob;
+  if (!ctx) throw new Error('Canvas 2D context unavailable for OCR preprocessing');
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = 'high';
   ctx.drawImage(img, 0, 0, w, h);
@@ -400,9 +401,7 @@ async function preprocessForOcr(blob: Blob): Promise<Blob> {
   }
   ctx.putImageData(imageData, 0, 0);
 
-  return new Promise((resolve) => {
-    canvas.toBlob((result) => resolve(result ?? blob), 'image/png');
-  });
+  return canvas;
 }
 
 async function handleOcrCapture(ev: Event): Promise<void> {
@@ -433,30 +432,16 @@ async function handleOcrCapture(ev: Event): Promise<void> {
 
   ocrBusy.value = true;
   try {
-    const preprocessed = await preprocessForOcr(croppedBlob).catch(() => croppedBlob!);
-    const { createWorker, PSM } = await import('tesseract.js');
-    const worker = await createWorker('eng');
-    let text: string;
-    try {
-      // Known marketplace → its order numbers are digits-only or
-      // alphanumeric-only, never both — scoping Tesseract's character set to
-      // that cuts out its most common confusions (O/0, I/1/l, S/5, etc.).
-      const whitelist = orderNumberFormatRule.value?.charWhitelist;
-      await worker.setParameters({
-        // SINGLE_BLOCK (not SINGLE_LINE): still reads just whatever's in the
-        // crop — one line, since that's what the user selected — but
-        // SINGLE_LINE's stricter assumption (the crop must be *exactly* one
-        // line with no surrounding margin) made Tesseract give up completely
-        // on real-world crops with a sliver of blank space or an adjacent
-        // barcode still inside the box.
-        tessedit_pageseg_mode: PSM.SINGLE_BLOCK,
-        ...(whitelist ? { tessedit_char_whitelist: whitelist } : {}),
-      });
-      const { data } = await worker.recognize(preprocessed);
-      text = data.text.replace(/\s+/g, '').trim();
-    } finally {
-      await worker.terminate();
-    }
+    // PP-OCR (deep-learning detector+recognizer) reads real-world photos far
+    // more reliably than Tesseract's classical pipeline — this replaced
+    // tesseract.js after it kept missing clearly-legible but blurry/skewed
+    // phone photos. It still works best on grayscale/thresholded input (the
+    // library's own docs recommend this), so the same preprocessing pipeline
+    // stays in place, just handed to a canvas instead of converted to a Blob.
+    const canvas = await preprocessForOcr(croppedBlob);
+    const service = await getOcrService();
+    const result = await service.recognize(canvas);
+    const text = result.text.replace(/\s+/g, '').trim();
     if (!text) {
       const alert = await alertController.create({
         header: 'No Text Found',
@@ -509,16 +494,13 @@ const lotTrackingWarnings = computed(() =>
 // Marketplace customers each have their own fixed order-number format on
 // their platform — matched by customer display name (BC customer records
 // are named after the marketplace, e.g. "Lazada Philippines Inc.").
-const DIGITS_ONLY = '0123456789';
-const ALNUM_UPPER = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ';
-
-interface OrderNumberFormatRule { name: string; customerMatch: RegExp; pattern: RegExp; description: string; charWhitelist: string; }
+interface OrderNumberFormatRule { name: string; customerMatch: RegExp; pattern: RegExp; description: string; }
 const ORDER_NUMBER_FORMAT_RULES: OrderNumberFormatRule[] = [
-  { name: 'Lazada', customerMatch: /lazada/i, pattern: /^\d{16}$/, description: '16 digits', charWhitelist: DIGITS_ONLY },
-  { name: 'Shopee', customerMatch: /shopee/i, pattern: /^[A-Za-z0-9]{14}$/, description: '14 letters/numbers', charWhitelist: ALNUM_UPPER },
-  { name: 'TikTok', customerMatch: /tik\s*tok/i, pattern: /^\d{18}$/, description: '18 digits', charWhitelist: DIGITS_ONLY },
-  { name: 'Zalora', customerMatch: /zalora/i, pattern: /^\d{9}$/, description: '9 digits', charWhitelist: DIGITS_ONLY },
-  { name: 'Shopify', customerMatch: /shopify/i, pattern: /^[A-Za-z0-9]{6}$/, description: '6 letters/numbers', charWhitelist: ALNUM_UPPER },
+  { name: 'Lazada', customerMatch: /lazada/i, pattern: /^\d{16}$/, description: '16 digits' },
+  { name: 'Shopee', customerMatch: /shopee/i, pattern: /^[A-Za-z0-9]{14}$/, description: '14 letters/numbers' },
+  { name: 'TikTok', customerMatch: /tik\s*tok/i, pattern: /^\d{18}$/, description: '18 digits' },
+  { name: 'Zalora', customerMatch: /zalora/i, pattern: /^\d{9}$/, description: '9 digits' },
+  { name: 'Shopify', customerMatch: /shopify/i, pattern: /^[A-Za-z0-9]{6}$/, description: '6 letters/numbers' },
 ];
 
 const orderNumberFormatRule = computed(() => {

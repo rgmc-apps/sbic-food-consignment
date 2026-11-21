@@ -251,6 +251,29 @@ docker build -t sbic-consignment-food .
 docker run -p 8080:8080 -e VITE_API_BASE_URL=https://rgmc-bc-api-staging-935246372408.asia-southeast1.run.app sbic-consignment-food
 ```
 
+The commands above are for a **local** build/run check only — they are not how this app actually reaches Cloud Run.
+
+### <span style="color:#D4A72C">🚀 Updating the live webapp</span>
+
+Two Cloud Build triggers watch this GitHub repo (`rgmc-apps/sbic-food-consignment`) and build + deploy automatically on push — there is no manual `gcloud run deploy`/`docker push` step:
+
+| Branch    | Cloud Run service                | URL |
+|-----------|-----------------------------------|-----|
+| `staging` | `sbic-food-consignment-staging`   | https://sbic-food-consignment-staging-935246372408.asia-southeast1.run.app |
+| `master`  | `sbic-food-consignment`           | https://sbic-food-consignment-935246372408.asia-southeast1.run.app |
+
+So: push to `staging` to update staging, merge `staging` → `master` (PR) to update production. Each deploy finishes in a couple of minutes.
+
+### <span style="color:#D4A72C">🔍 Checking the latest deployment</span>
+
+Every deploy tags its container image with the exact git commit SHA that triggered the build, so "what's live" is always a known commit — never a guess. Run:
+
+```bash
+npm run deploy:status
+```
+
+(`scripts/check-deploy.ps1`, requires `gcloud` auth against the `durable-woods-465907-n1` project). It prints, for both environments: the live revision name, deploy timestamp, the deployed commit (hash + message), and whether that environment is behind its branch's latest commit.
+
 ---
 
 ## <span style="color:#2461A8">📱 Mobile Deployment</span>

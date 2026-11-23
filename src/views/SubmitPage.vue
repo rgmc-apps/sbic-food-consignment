@@ -224,7 +224,7 @@ import { generateId } from '@/utils/id';
 import LotEditorPopover from '@/components/LotEditorPopover.vue';
 import QuantityEditorPopover from '@/components/QuantityEditorPopover.vue';
 import OcrCropModal from '@/components/OcrCropModal.vue';
-import { getOcrService } from '@/services/ocr.service';
+import { warmOcrService, recognizeOrderNumber, type OcrWord } from '@/services/ocr.service';
 import { CROP_PAD_RATIO } from '@/utils/ocrCrop';
 import { useCameraAvailability, isCameraPermissionDenied, reportCameraError, getCameraDeniedGuidance } from '@/composables/useCameraTroubleshoot';
 import type { FoodSalesOrderResult, OrderHistoryLine, OrderLine } from '@/types';
@@ -270,14 +270,12 @@ if (settingsStore.showItemPrices && session.value?.lines.length) {
 }
 const result = ref<FoodSalesOrderResult | null>(null);
 
-// Warm the OCR service as soon as this screen opens — the medium-tier model
+// Start the OCR worker as soon as this screen opens — the medium-tier model
 // is a ~139MB one-time download, so starting it now lets it fetch/initialize
 // while the user is still framing their photo instead of only starting
-// after they've already captured and cropped it. The rejection is swallowed
-// here on purpose: runOcrOnCrop re-awaits this same cached promise and
-// surfaces its own "Scan Failed" alert if it's still unresolved by then.
+// after they've already captured and cropped it.
 onMounted(() => {
-  void getOcrService().catch(() => {});
+  warmOcrService();
 });
 
 function handleOrderNumberInput(): void {
@@ -342,7 +340,7 @@ function loadImageFromBlob(blob: Blob): Promise<HTMLImageElement> {
 // kind of harm here, so it's gone — this now matches the library's own
 // recommended "just feed it the photo" usage.
 const OCR_MIN_HEIGHT_PX = 120;
-async function preprocessForOcr(blob: Blob): Promise<HTMLCanvasElement> {
+async function preprocessForOcr(blob: Blob): Promise<{ bytes: ArrayBuffer; width: number; height: number }> {
   const img = await loadImageFromBlob(blob);
   const scale = img.naturalHeight < OCR_MIN_HEIGHT_PX ? OCR_MIN_HEIGHT_PX / img.naturalHeight : 1;
   const w = Math.max(1, Math.round(img.naturalWidth * scale));
@@ -357,7 +355,12 @@ async function preprocessForOcr(blob: Blob): Promise<HTMLCanvasElement> {
   ctx.imageSmoothingQuality = 'high';
   ctx.drawImage(img, 0, 0, w, h);
 
-  return canvas;
+  // PNG bytes, not the canvas itself — the canvas can't cross into the OCR
+  // worker (see ocr.service.ts), only transferable data like an ArrayBuffer.
+  const pngBlob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'));
+  if (!pngBlob) throw new Error('Could not encode preprocessed image for OCR');
+  const bytes = await pngBlob.arrayBuffer();
+  return { bytes, width: w, height: h };
 }
 
 // Shared by both a fresh capture and "Retry Character Read" — the latter
@@ -371,17 +374,20 @@ async function runOcrOnCrop(croppedBlob: Blob): Promise<void> {
     // more reliably than Tesseract's classical pipeline — this replaced
     // tesseract.js after it kept missing clearly-legible but blurry/skewed
     // phone photos. Unlike Tesseract, it wants the photo close to as-is (see
-    // preprocessForOcr) — only upscaled, not binarized.
-    const canvas = await preprocessForOcr(croppedBlob);
-    const service = await getOcrService();
-    const result = await service.recognize(canvas);
-    // result.text joins everything the detector found in the crop — the pad
-    // around the drawn box (see OcrCropModal's CROP_PAD_RATIO) can catch a
-    // sliver of the row above/below, or a label sitting right next to the
-    // digits on the same row, and that bleed-through text was getting glued
-    // onto the real order number. selectPrimaryLineText excludes anything
-    // outside the box the user actually drew.
-    const text = normalizeOcrText(selectPrimaryLineText(result.lines, canvas.width, canvas.height), orderNumberFormatRule.value);
+    // preprocessForOcr) — only upscaled, not binarized. Inference itself
+    // runs inside a Web Worker (see ocr.service.ts), never on the main
+    // thread, so it can't freeze this field's busy-state animation.
+    const { bytes, width, height } = await preprocessForOcr(croppedBlob);
+    const lines = await recognizeOrderNumber(bytes);
+    // Joining everything the detector found in the crop glues on anything
+    // the pad around the drawn box (see OcrCropModal's CROP_PAD_RATIO)
+    // catches — a sliver of the row above/below, or a label sitting right
+    // next to the digits on the same row. selectPrimaryLineText excludes
+    // anything outside the box the user actually drew; normalizeOcrText then
+    // trims to the expected length for known formats as a second pass, for
+    // the rarer case where detection merges the label and the digits into
+    // one box (no separate box left to filter out).
+    const text = normalizeOcrText(selectPrimaryLineText(lines, width, height), orderNumberFormatRule.value);
     if (!text) {
       const alert = await alertController.create({
         header: 'No Text Found',
@@ -472,13 +478,13 @@ const lotTrackingWarnings = computed(() =>
 // Marketplace customers each have their own fixed order-number format on
 // their platform — matched by customer display name (BC customer records
 // are named after the marketplace, e.g. "Lazada Philippines Inc.").
-interface OrderNumberFormatRule { name: string; customerMatch: RegExp; pattern: RegExp; description: string; digitsOnly: boolean; }
+interface OrderNumberFormatRule { name: string; customerMatch: RegExp; pattern: RegExp; length: number; description: string; digitsOnly: boolean; }
 const ORDER_NUMBER_FORMAT_RULES: OrderNumberFormatRule[] = [
-  { name: 'Lazada', customerMatch: /lazada/i, pattern: /^\d{16}$/, description: '16 digits', digitsOnly: true },
-  { name: 'Shopee', customerMatch: /shopee/i, pattern: /^[A-Za-z0-9]{14}$/, description: '14 letters/numbers', digitsOnly: false },
-  { name: 'TikTok', customerMatch: /tik\s*tok/i, pattern: /^\d{18}$/, description: '18 digits', digitsOnly: true },
-  { name: 'Zalora', customerMatch: /zalora/i, pattern: /^\d{9}$/, description: '9 digits', digitsOnly: true },
-  { name: 'Shopify', customerMatch: /shopify/i, pattern: /^[A-Za-z0-9]{6}$/, description: '6 letters/numbers', digitsOnly: false },
+  { name: 'Lazada', customerMatch: /lazada/i, pattern: /^\d{16}$/, length: 16, description: '16 digits', digitsOnly: true },
+  { name: 'Shopee', customerMatch: /shopee/i, pattern: /^[A-Za-z0-9]{14}$/, length: 14, description: '14 letters/numbers', digitsOnly: false },
+  { name: 'TikTok', customerMatch: /tik\s*tok/i, pattern: /^\d{18}$/, length: 18, description: '18 digits', digitsOnly: true },
+  { name: 'Zalora', customerMatch: /zalora/i, pattern: /^\d{9}$/, length: 9, description: '9 digits', digitsOnly: true },
+  { name: 'Shopify', customerMatch: /shopify/i, pattern: /^[A-Za-z0-9]{6}$/, length: 6, description: '6 letters/numbers', digitsOnly: false },
 ];
 
 const orderNumberFormatRule = computed(() => {
@@ -494,8 +500,6 @@ const orderNumberFormatRule = computed(() => {
 // and numbers, where a "fix" could just as easily turn a correct letter
 // into a wrong digit.
 const DIGIT_LOOKALIKES: Record<string, string> = { O: '0', I: '1', L: '1', S: '5', B: '8', Z: '2' };
-
-type OcrWord = { text: string; box: { x: number; y: number; width: number; height: number } };
 
 // Excludes anything the detector found only in OcrCropModal's padding
 // margin — not just a whole stray line (a sliver of the row above/below
@@ -552,6 +556,19 @@ function normalizeOcrText(raw: string, rule: OrderNumberFormatRule | null): stri
   let text = raw.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
   if (rule?.digitsOnly) {
     text = text.replace(/[A-Z]/g, (ch) => DIGIT_LOOKALIKES[ch] ?? ch);
+  }
+  // Every format is an exact fixed length. selectPrimaryLineText already
+  // drops whole stray boxes found only in the crop's padding margin, but
+  // detection can still merge a label and the digits into a SINGLE box when
+  // they sit close enough together on the same line — there's no separate
+  // box left to filter out in that case, just one text string with extra
+  // characters baked in. Every bleed-through case seen so far has been a
+  // PREFIX (the label/adjacent text sits to the left), so if the text is
+  // longer than expected, keep just the trailing run — but only commit to
+  // it if that right-aligned slice is itself a valid read.
+  if (rule && text.length > rule.length) {
+    const trimmed = text.slice(-rule.length);
+    if (rule.pattern.test(trimmed)) text = trimmed;
   }
   return text;
 }

@@ -106,6 +106,9 @@
           </button>
         </div>
         <p v-if="orderNumberFormatError" class="order-no-error">{{ orderNumberFormatError }}</p>
+        <p v-if="ocrLoadProgress" class="ocr-load-progress">
+          Preparing OCR engine… {{ Math.round((ocrLoadProgress.loaded / ocrLoadProgress.total) * 100) }}%
+        </p>
 
         <div class="lines-section">
           <p class="section-label">Order Lines</p>
@@ -206,7 +209,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, nextTick, onMounted } from 'vue';
+import { ref, computed, nextTick, onMounted, onUnmounted } from 'vue';
 import {
   IonPage, IonHeader, IonToolbar, IonTitle, IonButtons, IonBackButton, IonContent, IonCard,
   IonCardHeader, IonCardSubtitle, IonCardTitle, IonCardContent, IonItem, IonLabel, IonInput,
@@ -224,7 +227,8 @@ import { generateId } from '@/utils/id';
 import LotEditorPopover from '@/components/LotEditorPopover.vue';
 import QuantityEditorPopover from '@/components/QuantityEditorPopover.vue';
 import OcrCropModal from '@/components/OcrCropModal.vue';
-import { warmOcrService, recognizeOrderNumber, type OcrWord } from '@/services/ocr.service';
+import OcrCameraCaptureModal from '@/components/OcrCameraCaptureModal.vue';
+import { warmOcrService, recognizeOrderNumber, subscribeOcrLoadProgress, type OcrWord } from '@/services/ocr.service';
 import { CROP_PAD_RATIO } from '@/utils/ocrCrop';
 import { useCameraAvailability, isCameraPermissionDenied, reportCameraError, getCameraDeniedGuidance } from '@/composables/useCameraTroubleshoot';
 import type { FoodSalesOrderResult, OrderHistoryLine, OrderLine } from '@/types';
@@ -239,6 +243,11 @@ const session = computed(() => sessionStore.currentSession);
 const orderNumberInput = ref(session.value?.orderNumber ?? '');
 const orderNumberInputEl = ref<InstanceType<typeof IonInput> | null>(null);
 const ocrBusy = ref(false);
+// Set only while the model is still downloading — null again once it's
+// fully loaded (cached resources report loaded===total immediately, so a
+// warm cache never shows this at all). Exists so a slow mobile connection
+// on first use reads as "downloading, 42%" instead of looking frozen.
+const ocrLoadProgress = ref<{ loaded: number; total: number } | null>(null);
 const ocrFileInput = ref<HTMLInputElement | null>(null);
 // The last cropped photo, kept so "Retry Character Read" can re-run just
 // recognition (useful since the model result can vary run to run, and the
@@ -274,8 +283,15 @@ const result = ref<FoodSalesOrderResult | null>(null);
 // is a ~139MB one-time download, so starting it now lets it fetch/initialize
 // while the user is still framing their photo instead of only starting
 // after they've already captured and cropped it.
+let unsubscribeOcrProgress: (() => void) | null = null;
 onMounted(() => {
+  unsubscribeOcrProgress = subscribeOcrLoadProgress((loaded, total) => {
+    ocrLoadProgress.value = loaded < total ? { loaded, total } : null;
+  });
   warmOcrService();
+});
+onUnmounted(() => {
+  unsubscribeOcrProgress?.();
 });
 
 function handleOrderNumberInput(): void {
@@ -294,6 +310,8 @@ async function enableManualEntry(): Promise<void> {
   await nextTick();
   await orderNumberInputEl.value?.$el.setFocus();
 }
+
+const getUserMediaSupported = 'mediaDevices' in navigator && 'getUserMedia' in navigator.mediaDevices;
 
 async function triggerOcrCapture(): Promise<void> {
   // Known-blocked permission — skip opening a camera UI we already know is
@@ -316,7 +334,29 @@ async function triggerOcrCapture(): Promise<void> {
     await alert.present();
     return;
   }
-  ocrFileInput.value?.click();
+
+  if (getUserMediaSupported) {
+    await captureViaCamera();
+  } else {
+    ocrFileInput.value?.click();
+  }
+}
+
+// The custom camera path (forced continuous autofocus, torch control,
+// burst-capture-pick-sharpest-frame — see OcrCameraCaptureModal) is tried
+// first wherever getUserMedia is available; its own error panel offers a
+// way back to the classic file-input picker, so a getUserMedia-specific
+// failure (e.g. a browser that reports support but the permission prompt
+// behaves oddly) never strands the user without a way to scan at all.
+async function captureViaCamera(): Promise<void> {
+  const modal = await modalController.create({ component: OcrCameraCaptureModal });
+  await modal.present();
+  const { data, role } = await modal.onDidDismiss<Blob>();
+  if (role === 'classic-camera') {
+    ocrFileInput.value?.click();
+    return;
+  }
+  if (role === 'confirm' && data) await processCapturedImage(data);
 }
 
 function loadImageFromBlob(blob: Blob): Promise<HTMLImageElement> {
@@ -417,13 +457,17 @@ async function handleOcrCapture(ev: Event): Promise<void> {
   const file = input.files?.[0];
   input.value = '';
   if (!file) return;
+  await processCapturedImage(file);
+}
 
+// Shared by both capture paths (the custom camera modal and the classic
+// file-input picker) — lets the user pinpoint just the order number in the
+// photo before OCR ever runs on it, so other printed text (or a barcode
+// sitting right next to it, as on these labels) doesn't confuse the read.
+async function processCapturedImage(source: Blob): Promise<void> {
   ocrAttempted.value = true;
 
-  // Let the user pinpoint just the order number in the photo before OCR
-  // ever runs on it, so other printed text (or a barcode sitting right next
-  // to it, as on these labels) doesn't confuse the read.
-  const imageUrl = URL.createObjectURL(file);
+  const imageUrl = URL.createObjectURL(source);
   let croppedBlob: Blob | null = null;
   try {
     const modal = await modalController.create({
@@ -808,6 +852,7 @@ function finishAndGoHome(): void {
 
   .ocr-action-row { grid-column: 1; order: 2; }
   .order-no-error { grid-column: 1; order: 2; }
+  .ocr-load-progress { grid-column: 1; order: 2; }
 
   .submit-error { grid-column: 1; order: 3; }
 
@@ -937,6 +982,12 @@ function finishAndGoHome(): void {
 
 .order-no-error {
   color: var(--ion-color-danger);
+  font-size: var(--text-xs);
+  margin: 4px 16px 0;
+}
+
+.ocr-load-progress {
+  color: var(--app-text-muted);
   font-size: var(--text-xs);
   margin: 4px 16px 0;
 }

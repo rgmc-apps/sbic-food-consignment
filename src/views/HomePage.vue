@@ -83,7 +83,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, onMounted } from 'vue';
 import {
   IonPage, IonHeader, IonToolbar, IonTitle, IonButtons, IonButton, IonIcon, IonContent,
   IonList, IonItem, IonItemSliding, IonItemOptions, IonItemOption, IonLabel, alertController,
@@ -94,6 +94,7 @@ import { useAuthStore } from '@/stores/auth.store';
 import { useSessionStore } from '@/stores/session.store';
 import { formatDate, isExpiringSoon } from '@/utils/format';
 import { useProfile } from '@/composables/useProfile';
+import { warmOcrService } from '@/services/ocr.service';
 import type { ScanSession } from '@/types';
 
 const router = useRouter();
@@ -104,6 +105,18 @@ const { openProfileMenu } = useProfile();
 const todayLabel = computed(() =>
   new Date().toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }),
 );
+
+// Starts the OCR worker's model download the moment the user lands on the
+// very first screen after login — not just when they reach Submit. Scanning
+// a barcode drafts item-by-item on the Scan page already takes a real amount
+// of time; spending that time downloading the model in the background (it's
+// a module-level singleton, so it keeps running across these SPA route
+// changes rather than restarting) means it's often already warm by the time
+// Submit needs it, instead of the whole wait landing in one place right
+// after the user crops their photo.
+onMounted(() => {
+  warmOcrService();
+});
 
 function startNewSession(): void {
   if (!authStore.user) return;

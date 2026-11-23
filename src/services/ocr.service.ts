@@ -11,6 +11,20 @@ let nextId = 0;
 const pending = new Map<number, { resolve: (lines: OcrWord[][]) => void; reject: (err: Error) => void }>();
 const progressListeners = new Set<(loaded: number, total: number) => void>();
 
+// A failed worker — its script 404/503ing (e.g. a Cloud Run cold-start
+// blip), or a corrupt message — previously had no handler at all: nothing
+// ever rejected the pending recognize() promise, so a scan just hung
+// forever ("stuck loading") instead of failing visibly. This rejects every
+// in-flight request and discards the dead worker so the NEXT scan attempt
+// constructs a fresh one rather than reusing a permanently broken reference
+// for the rest of the session — the transient condition that likely broke
+// this one is usually gone by the time the user retries.
+function failAllPending(message: string): void {
+  for (const entry of pending.values()) entry.reject(new Error(message));
+  pending.clear();
+  worker = null;
+}
+
 // Lazily creates a single shared worker — kept at module scope so it's
 // reused across scans and across navigating away from and back to the
 // submit screen, not re-created on every mount. OCR (onnxruntime-web WASM
@@ -20,8 +34,8 @@ const progressListeners = new Set<(loaded: number, total: number) => void>();
 // spinner) never have to compete with it for the main thread.
 function getWorker(): Worker {
   if (!worker) {
-    worker = new Worker(new URL('../workers/ocr.worker.ts', import.meta.url), { type: 'module' });
-    worker.onmessage = (event: MessageEvent<OcrWorkerMessage>) => {
+    const w = new Worker(new URL('../workers/ocr.worker.ts', import.meta.url), { type: 'module' });
+    w.onmessage = (event: MessageEvent<OcrWorkerMessage>) => {
       const data = event.data;
       if ('type' in data) {
         progressListeners.forEach((cb) => cb(data.loaded, data.total));
@@ -33,6 +47,9 @@ function getWorker(): Worker {
       if (data.ok) entry.resolve(data.lines);
       else entry.reject(new Error(data.error));
     };
+    w.onerror = () => failAllPending('OCR worker failed to load. Please try again.');
+    w.onmessageerror = () => failAllPending('OCR worker sent an unreadable response. Please try again.');
+    worker = w;
   }
   return worker;
 }

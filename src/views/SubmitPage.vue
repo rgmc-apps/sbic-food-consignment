@@ -106,6 +106,9 @@
           </button>
         </div>
         <p v-if="orderNumberFormatError" class="order-no-error">{{ orderNumberFormatError }}</p>
+        <p v-if="ocrLoadProgress" class="ocr-load-progress">
+          Preparing OCR engine… {{ Math.round((ocrLoadProgress.loaded / ocrLoadProgress.total) * 100) }}%
+        </p>
 
         <div class="lines-section">
           <p class="section-label">Order Lines</p>
@@ -206,7 +209,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, nextTick, onMounted } from 'vue';
+import { ref, computed, nextTick, onMounted, onUnmounted } from 'vue';
 import {
   IonPage, IonHeader, IonToolbar, IonTitle, IonButtons, IonBackButton, IonContent, IonCard,
   IonCardHeader, IonCardSubtitle, IonCardTitle, IonCardContent, IonItem, IonLabel, IonInput,
@@ -225,7 +228,7 @@ import LotEditorPopover from '@/components/LotEditorPopover.vue';
 import QuantityEditorPopover from '@/components/QuantityEditorPopover.vue';
 import OcrCropModal from '@/components/OcrCropModal.vue';
 import OcrCameraCaptureModal from '@/components/OcrCameraCaptureModal.vue';
-import { warmOcrService, recognizeOrderNumber, type OcrWord } from '@/services/ocr.service';
+import { warmOcrService, recognizeOrderNumber, subscribeOcrLoadProgress, type OcrWord } from '@/services/ocr.service';
 import { CROP_PAD_RATIO } from '@/utils/ocrCrop';
 import { useCameraAvailability, isCameraPermissionDenied, reportCameraError, getCameraDeniedGuidance } from '@/composables/useCameraTroubleshoot';
 import type { FoodSalesOrderResult, OrderHistoryLine, OrderLine } from '@/types';
@@ -240,6 +243,11 @@ const session = computed(() => sessionStore.currentSession);
 const orderNumberInput = ref(session.value?.orderNumber ?? '');
 const orderNumberInputEl = ref<InstanceType<typeof IonInput> | null>(null);
 const ocrBusy = ref(false);
+// Set only while the model is still downloading — null again once it's
+// fully loaded (cached resources report loaded===total immediately, so a
+// warm cache never shows this at all). Exists so a slow mobile connection
+// on first use reads as "downloading, 42%" instead of looking frozen.
+const ocrLoadProgress = ref<{ loaded: number; total: number } | null>(null);
 const ocrFileInput = ref<HTMLInputElement | null>(null);
 // The last cropped photo, kept so "Retry Character Read" can re-run just
 // recognition (useful since the model result can vary run to run, and the
@@ -275,8 +283,15 @@ const result = ref<FoodSalesOrderResult | null>(null);
 // is a ~139MB one-time download, so starting it now lets it fetch/initialize
 // while the user is still framing their photo instead of only starting
 // after they've already captured and cropped it.
+let unsubscribeOcrProgress: (() => void) | null = null;
 onMounted(() => {
+  unsubscribeOcrProgress = subscribeOcrLoadProgress((loaded, total) => {
+    ocrLoadProgress.value = loaded < total ? { loaded, total } : null;
+  });
   warmOcrService();
+});
+onUnmounted(() => {
+  unsubscribeOcrProgress?.();
 });
 
 function handleOrderNumberInput(): void {
@@ -837,6 +852,7 @@ function finishAndGoHome(): void {
 
   .ocr-action-row { grid-column: 1; order: 2; }
   .order-no-error { grid-column: 1; order: 2; }
+  .ocr-load-progress { grid-column: 1; order: 2; }
 
   .submit-error { grid-column: 1; order: 3; }
 
@@ -966,6 +982,12 @@ function finishAndGoHome(): void {
 
 .order-no-error {
   color: var(--ion-color-danger);
+  font-size: var(--text-xs);
+  margin: 4px 16px 0;
+}
+
+.ocr-load-progress {
+  color: var(--app-text-muted);
   font-size: var(--text-xs);
   margin: 4px 16px 0;
 }

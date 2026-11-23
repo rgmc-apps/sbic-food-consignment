@@ -1,13 +1,15 @@
 export interface OcrBox { x: number; y: number; width: number; height: number }
 export interface OcrWord { text: string; box: OcrBox }
 
-type OcrWorkerResponse =
+type OcrWorkerMessage =
   | { id: number; ok: true; lines: OcrWord[][] }
-  | { id: number; ok: false; error: string };
+  | { id: number; ok: false; error: string }
+  | { type: 'progress'; loaded: number; total: number };
 
 let worker: Worker | null = null;
 let nextId = 0;
 const pending = new Map<number, { resolve: (lines: OcrWord[][]) => void; reject: (err: Error) => void }>();
+const progressListeners = new Set<(loaded: number, total: number) => void>();
 
 // Lazily creates a single shared worker — kept at module scope so it's
 // reused across scans and across navigating away from and back to the
@@ -19,21 +21,37 @@ const pending = new Map<number, { resolve: (lines: OcrWord[][]) => void; reject:
 function getWorker(): Worker {
   if (!worker) {
     worker = new Worker(new URL('../workers/ocr.worker.ts', import.meta.url), { type: 'module' });
-    worker.onmessage = (event: MessageEvent<OcrWorkerResponse>) => {
-      const entry = pending.get(event.data.id);
+    worker.onmessage = (event: MessageEvent<OcrWorkerMessage>) => {
+      const data = event.data;
+      if ('type' in data) {
+        progressListeners.forEach((cb) => cb(data.loaded, data.total));
+        return;
+      }
+      const entry = pending.get(data.id);
       if (!entry) return;
-      pending.delete(event.data.id);
-      if (event.data.ok) entry.resolve(event.data.lines);
-      else entry.reject(new Error(event.data.error));
+      pending.delete(data.id);
+      if (data.ok) entry.resolve(data.lines);
+      else entry.reject(new Error(data.error));
     };
   }
   return worker;
 }
 
-/** Starts the worker (and its ~139MB model download/init) ahead of the first
- *  real scan — see SubmitPage.vue's onMounted call. */
+/** Starts the worker (and its model download/init) ahead of the first real
+ *  scan — see SubmitPage.vue's onMounted call. */
 export function warmOcrService(): void {
   getWorker();
+}
+
+/** Subscribes to model download progress (bytes loaded / total, aggregated
+ *  across every model resource fetched this session) — lets the UI show
+ *  real progress instead of an indefinite spinner while a slow mobile
+ *  connection downloads the model for the first time. Returns an
+ *  unsubscribe function. */
+export function subscribeOcrLoadProgress(cb: (loaded: number, total: number) => void): () => void {
+  getWorker(); // ensure the worker (and its progress messages) actually exist
+  progressListeners.add(cb);
+  return () => progressListeners.delete(cb);
 }
 
 /** Runs OCR on a cropped order-number photo (PNG bytes) inside the worker.

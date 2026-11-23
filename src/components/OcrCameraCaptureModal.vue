@@ -76,14 +76,16 @@
       </div>
     </ion-content>
 
-    <ion-footer v-if="status === 'ready' || status === 'capturing'" class="shutter-footer">
-      <button
-        type="button"
-        class="shutter-btn"
-        :disabled="status === 'capturing'"
-        aria-label="Take photo"
-        @click="captureBurst"
-      />
+    <ion-footer v-if="status === 'ready' || status === 'capturing'">
+      <div class="shutter-bar">
+        <button
+          type="button"
+          class="shutter-btn"
+          :disabled="status === 'capturing'"
+          aria-label="Take photo"
+          @click="captureBurst"
+        />
+      </div>
     </ion-footer>
   </ion-page>
 </template>
@@ -377,14 +379,18 @@ onUnmounted(() => { stopCamera(); });
   accent-color: var(--app-blue);
 }
 
-/* A plain flex container, not an ion-toolbar — ion-toolbar renders its
-   slotted content through its own internal start/secondary/end column
-   layout in its shadow DOM, which silently overrides a scoped
-   display/justify-content set on the host and was why the shutter button
-   rendered pinned to the left instead of centered. ion-footer has no such
-   internal column system, so plain flexbox here actually centers it. */
-.shutter-footer {
-  --background: #000;
+/* A plain div, not styling on ion-toolbar/ion-footer directly — ion-toolbar
+   renders slotted content through its own internal start/secondary/end
+   column layout in its shadow DOM (which is why the button rendered pinned
+   left instead of centered before), and ion-footer turned out not to paint
+   its own background from a `--background` custom property at all either
+   (that variable is normally consumed BY a nested ion-toolbar's shadow
+   style, which this footer no longer has) — so the footer silently fell
+   back to Ionic's light theme background, leaving a white button invisible
+   against a now-white bar. A plain, un-encapsulated div has no shadow DOM
+   to second-guess: what's written here is exactly what paints. */
+.shutter-bar {
+  background: #000;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -396,7 +402,11 @@ onUnmounted(() => { stopCamera(); });
   height: 68px;
   border-radius: 50%;
   background: #fff;
-  border: 4px solid rgba(255, 255, 255, 0.4);
+  /* A solid dark ring, not the previous semi-transparent white one (which
+     blended into a light background exactly like the fill did) — keeps the
+     button visibly a "button" against any backdrop, bright or dark. */
+  border: 4px solid rgba(0, 0, 0, 0.55);
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.9);
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
 }

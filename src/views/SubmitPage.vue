@@ -42,7 +42,13 @@
 
         <ion-item lines="none" class="order-no-field">
           <ion-label position="stacked">Order Number *</ion-label>
+          <ion-skeleton-text
+            v-if="ocrBusy"
+            :animated="true"
+            class="order-no-skeleton"
+          />
           <ion-input
+            v-else
             ref="orderNumberInputEl"
             v-model="orderNumberInput"
             :readonly="orderNumberLocked"
@@ -203,11 +209,11 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, nextTick } from 'vue';
+import { ref, computed, nextTick, onMounted } from 'vue';
 import {
   IonPage, IonHeader, IonToolbar, IonTitle, IonButtons, IonBackButton, IonContent, IonCard,
   IonCardHeader, IonCardSubtitle, IonCardTitle, IonCardContent, IonItem, IonLabel, IonInput,
-  IonList, IonButton, IonSpinner, IonIcon, popoverController, alertController, modalController,
+  IonList, IonButton, IonSpinner, IonIcon, IonSkeletonText, popoverController, alertController, modalController,
 } from '@ionic/vue';
 import { checkmarkCircleOutline, createOutline, bugOutline, cameraOutline, refreshOutline, textOutline } from 'ionicons/icons';
 import { useRouter } from 'vue-router';
@@ -263,6 +269,16 @@ if (settingsStore.showItemPrices && session.value?.lines.length) {
     .catch(() => { /* ignore — prices just won't show */ });
 }
 const result = ref<FoodSalesOrderResult | null>(null);
+
+// Warm the OCR service as soon as this screen opens — the medium-tier model
+// is a ~139MB one-time download, so starting it now lets it fetch/initialize
+// while the user is still framing their photo instead of only starting
+// after they've already captured and cropped it. The rejection is swallowed
+// here on purpose: runOcrOnCrop re-awaits this same cached promise and
+// surfaces its own "Scan Failed" alert if it's still unresolved by then.
+onMounted(() => {
+  void getOcrService().catch(() => {});
+});
 
 // Explicit escape hatch from the "scan first" SOP — for whenever OCR just
 // isn't going to work (damaged label, no signal to download the model,
@@ -354,7 +370,14 @@ async function runOcrOnCrop(croppedBlob: Blob): Promise<void> {
     const canvas = await preprocessForOcr(croppedBlob);
     const service = await getOcrService();
     const result = await service.recognize(canvas);
-    const text = normalizeOcrText(result.text, orderNumberFormatRule.value);
+    // result.text joins every line the detector found in the crop — the 15%
+    // pad (see OcrCropModal's CROP_PAD_RATIO) can catch a sliver of the row
+    // above/below the drawn box, and that sliver's text was getting glued
+    // onto the real order number (e.g. a stray "ER" from the row above
+    // prefixed onto the digits). The pad is symmetric, so the line the user
+    // actually boxed is always the one nearest the crop's vertical center —
+    // any bleed-through line sits further off-center by construction.
+    const text = normalizeOcrText(selectPrimaryLineText(result.lines, canvas.height), orderNumberFormatRule.value);
     if (!text) {
       const alert = await alertController.create({
         header: 'No Text Found',
@@ -466,6 +489,28 @@ const orderNumberFormatRule = computed(() => {
 // and numbers, where a "fix" could just as easily turn a correct letter
 // into a wrong digit.
 const DIGIT_LOOKALIKES: Record<string, string> = { O: '0', I: '1', L: '1', S: '5', B: '8', Z: '2' };
+
+// Picks the one line the user actually boxed out of everything the detector
+// found in the (symmetrically) padded crop — the line whose vertical center
+// is closest to the crop's own center, since that's always where the
+// original unpadded selection sat.
+function selectPrimaryLineText(lines: { text: string; box: { y: number; height: number } }[][], canvasHeight: number): string {
+  const centerY = canvasHeight / 2;
+  let best: typeof lines[number] | null = null;
+  let bestDist = Infinity;
+  for (const line of lines) {
+    if (!line.length) continue;
+    const top = Math.min(...line.map((word) => word.box.y));
+    const bottom = Math.max(...line.map((word) => word.box.y + word.box.height));
+    const dist = Math.abs((top + bottom) / 2 - centerY);
+    if (dist < bestDist) {
+      bestDist = dist;
+      best = line;
+    }
+  }
+  return best ? best.map((word) => word.text).join('') : '';
+}
+
 function normalizeOcrText(raw: string, rule: OrderNumberFormatRule | null): string {
   let text = raw.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
   if (rule?.digitsOnly) {
@@ -725,6 +770,12 @@ function finishAndGoHome(): void {
 
 .order-no-field {
   margin: 4px 16px 0;
+}
+
+.order-no-skeleton {
+  width: 70%;
+  height: 20px;
+  margin: 8px 0;
 }
 
 .order-no-hint {

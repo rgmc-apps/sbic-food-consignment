@@ -41,6 +41,7 @@ import {
   IonContent, IonFooter, modalController,
 } from '@ionic/vue';
 import { closeOutline } from 'ionicons/icons';
+import { CROP_PAD_RATIO } from '@/utils/ocrCrop';
 
 // Data goes back to the caller via modalController.dismiss(data, role) +
 // the caller's `await modal.onDidDismiss()` — same convention as every
@@ -160,18 +161,19 @@ function cancel(): void {
   modalController.dismiss(null, 'cancel');
 }
 
-// A pixel-tight crop can clip the very strokes at its own edge, which reads
-// to the OCR detector as "nothing here" and truncates or drops characters
-// right at the border — padding the selection a bit past exactly what was
-// drawn gives the detector breathing room around the text instead.
-const CROP_PAD_RATIO = 0.15;
-
 function confirm(): void {
   const img = imgEl.value!;
   const rect = img.getBoundingClientRect();
   const scaleX = img.naturalWidth / rect.width;
   const scaleY = img.naturalHeight / rect.height;
 
+  // A pixel-tight crop can clip the very strokes at its own edge, which
+  // reads to the OCR detector as "nothing here" and truncates or drops
+  // characters right at the border — padding the selection a bit past
+  // exactly what was drawn gives the detector breathing room around the
+  // text instead. SubmitPage.vue uses this same ratio (see its import of
+  // CROP_PAD_RATIO) to know which margin of the final crop is just padding,
+  // so it can exclude anything the detector finds only in that margin.
   const padX = box.w * CROP_PAD_RATIO;
   const padY = box.h * CROP_PAD_RATIO;
   const x0 = clamp(box.x - padX, 0, rect.width);

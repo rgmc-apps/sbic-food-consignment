@@ -225,6 +225,7 @@ import LotEditorPopover from '@/components/LotEditorPopover.vue';
 import QuantityEditorPopover from '@/components/QuantityEditorPopover.vue';
 import OcrCropModal from '@/components/OcrCropModal.vue';
 import { getOcrService } from '@/services/ocr.service';
+import { CROP_PAD_RATIO } from '@/utils/ocrCrop';
 import { useCameraAvailability, isCameraPermissionDenied, reportCameraError, getCameraDeniedGuidance } from '@/composables/useCameraTroubleshoot';
 import type { FoodSalesOrderResult, OrderHistoryLine, OrderLine } from '@/types';
 
@@ -374,14 +375,13 @@ async function runOcrOnCrop(croppedBlob: Blob): Promise<void> {
     const canvas = await preprocessForOcr(croppedBlob);
     const service = await getOcrService();
     const result = await service.recognize(canvas);
-    // result.text joins every line the detector found in the crop — the 15%
-    // pad (see OcrCropModal's CROP_PAD_RATIO) can catch a sliver of the row
-    // above/below the drawn box, and that sliver's text was getting glued
-    // onto the real order number (e.g. a stray "ER" from the row above
-    // prefixed onto the digits). The pad is symmetric, so the line the user
-    // actually boxed is always the one nearest the crop's vertical center —
-    // any bleed-through line sits further off-center by construction.
-    const text = normalizeOcrText(selectPrimaryLineText(result.lines, canvas.height), orderNumberFormatRule.value);
+    // result.text joins everything the detector found in the crop — the pad
+    // around the drawn box (see OcrCropModal's CROP_PAD_RATIO) can catch a
+    // sliver of the row above/below, or a label sitting right next to the
+    // digits on the same row, and that bleed-through text was getting glued
+    // onto the real order number. selectPrimaryLineText excludes anything
+    // outside the box the user actually drew.
+    const text = normalizeOcrText(selectPrimaryLineText(result.lines, canvas.width, canvas.height), orderNumberFormatRule.value);
     if (!text) {
       const alert = await alertController.create({
         header: 'No Text Found',
@@ -495,25 +495,57 @@ const orderNumberFormatRule = computed(() => {
 // into a wrong digit.
 const DIGIT_LOOKALIKES: Record<string, string> = { O: '0', I: '1', L: '1', S: '5', B: '8', Z: '2' };
 
-// Picks the one line the user actually boxed out of everything the detector
-// found in the (symmetrically) padded crop — the line whose vertical center
-// is closest to the crop's own center, since that's always where the
-// original unpadded selection sat.
-function selectPrimaryLineText(lines: { text: string; box: { y: number; height: number } }[][], canvasHeight: number): string {
+type OcrWord = { text: string; box: { x: number; y: number; width: number; height: number } };
+
+// Excludes anything the detector found only in OcrCropModal's padding
+// margin — not just a whole stray line (a sliver of the row above/below
+// bleeding in), but also a stray word on the SAME line (e.g. a label like
+// "Number:" sitting right next to the digits, close enough that the padding
+// reaches it too). The padding is symmetric, so the user's actual selection
+// always occupies the crop's central 1 / (1 + 2 * CROP_PAD_RATIO) box on
+// both axes — anything whose center falls outside that box only exists
+// because of the padding, not because the user boxed it.
+function selectPrimaryLineText(lines: OcrWord[][], canvasWidth: number, canvasHeight: number): string {
+  const marginFrac = CROP_PAD_RATIO / (1 + 2 * CROP_PAD_RATIO);
+  const left = canvasWidth * marginFrac;
+  const right = canvasWidth * (1 - marginFrac);
+  const top = canvasHeight * marginFrac;
+  const bottom = canvasHeight * (1 - marginFrac);
+  const inZone = (word: OcrWord): boolean => {
+    const cx = word.box.x + word.box.width / 2;
+    const cy = word.box.y + word.box.height / 2;
+    return cx >= left && cx <= right && cy >= top && cy <= bottom;
+  };
+
+  let bestZoneWords: OcrWord[] = [];
+  let bestZoneLen = 0;
+  // Fallback if the zone filter happens to reject everything (e.g. a box
+  // drawn so tight the detector's own box extends past it) — the line
+  // nearest the crop's vertical center, same as before this filter existed.
+  let fallbackLine: OcrWord[] | null = null;
+  let fallbackDist = Infinity;
   const centerY = canvasHeight / 2;
-  let best: typeof lines[number] | null = null;
-  let bestDist = Infinity;
+
   for (const line of lines) {
     if (!line.length) continue;
-    const top = Math.min(...line.map((word) => word.box.y));
-    const bottom = Math.max(...line.map((word) => word.box.y + word.box.height));
-    const dist = Math.abs((top + bottom) / 2 - centerY);
-    if (dist < bestDist) {
-      bestDist = dist;
-      best = line;
+    const zoneWords = line.filter(inZone);
+    const zoneLen = zoneWords.reduce((sum, w) => sum + w.text.length, 0);
+    if (zoneLen > bestZoneLen) {
+      bestZoneLen = zoneLen;
+      bestZoneWords = zoneWords;
+    }
+
+    const lineTop = Math.min(...line.map((word) => word.box.y));
+    const lineBottom = Math.max(...line.map((word) => word.box.y + word.box.height));
+    const dist = Math.abs((lineTop + lineBottom) / 2 - centerY);
+    if (dist < fallbackDist) {
+      fallbackDist = dist;
+      fallbackLine = line;
     }
   }
-  return best ? best.map((word) => word.text).join('') : '';
+
+  if (bestZoneLen > 0) return bestZoneWords.map((w) => w.text).join('');
+  return fallbackLine ? fallbackLine.map((w) => w.text).join('') : '';
 }
 
 function normalizeOcrText(raw: string, rule: OrderNumberFormatRule | null): string {

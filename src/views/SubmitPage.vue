@@ -42,12 +42,16 @@
 
         <ion-item lines="none" class="order-no-field">
           <ion-label position="stacked">Order Number *</ion-label>
+          <ion-skeleton-text
+            v-if="ocrBusy"
+            class="order-no-skeleton"
+          />
           <ion-input
+            v-else
             ref="orderNumberInputEl"
             v-model="orderNumberInput"
-            :readonly="orderNumberLocked"
-            :placeholder="orderNumberLocked ? 'Tap the camera to scan the order number' : 'Enter the online order number'"
-            @ion-input="sessionStore.setOrderNumber(orderNumberInput)"
+            placeholder="Enter or scan the online order number"
+            @ion-input="handleOrderNumberInput"
           />
           <button
             type="button"
@@ -70,7 +74,6 @@
             @change="handleOcrCapture"
           />
         </ion-item>
-        <p v-if="orderNumberLocked" class="order-no-hint">Scan the order number first — you can correct it after if the scan reads it wrong.</p>
         <div v-if="cameraAvailable" class="ocr-action-row">
           <button
             v-if="ocrAttempted"
@@ -203,11 +206,11 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, nextTick } from 'vue';
+import { ref, computed, nextTick, onMounted } from 'vue';
 import {
   IonPage, IonHeader, IonToolbar, IonTitle, IonButtons, IonBackButton, IonContent, IonCard,
   IonCardHeader, IonCardSubtitle, IonCardTitle, IonCardContent, IonItem, IonLabel, IonInput,
-  IonList, IonButton, IonSpinner, IonIcon, popoverController, alertController, modalController,
+  IonList, IonButton, IonSpinner, IonIcon, IonSkeletonText, popoverController, alertController, modalController,
 } from '@ionic/vue';
 import { checkmarkCircleOutline, createOutline, bugOutline, cameraOutline, refreshOutline, textOutline } from 'ionicons/icons';
 import { useRouter } from 'vue-router';
@@ -242,14 +245,16 @@ const ocrFileInput = ref<HTMLInputElement | null>(null);
 // re-crop the picture.
 const lastCroppedImage = ref<Blob | null>(null);
 const { cameraAvailable } = useCameraAvailability();
-// SOP: scan first, then edit if the OCR read is wrong. A resumed draft that
-// already has an order number (scanned or typed in an earlier session)
-// counts as already satisfying that — it doesn't get re-locked.
+// Whether the user has made at least one scan attempt this session — gates
+// the "Retry Scan" button (no point offering a retry before a first try). A
+// resumed draft that already has an order number counts as already satisfied.
 const ocrAttempted = ref(!!session.value?.orderNumber?.trim());
-// Manual typing is only locked while there's actually a camera to scan
-// with — a device with no camera must fall straight through to manual
-// entry, never get stranded behind an SOP it can't satisfy.
-const orderNumberLocked = computed(() => !ocrAttempted.value && cameraAvailable.value);
+// Tracks how the current order number got into the field — typing (the
+// @ion-input handler below, which only fires on real user keystrokes, never
+// on a programmatic v-model assignment) vs. a successful OCR scan. Gates the
+// confirm-before-submit step: a resumed draft's provenance isn't known, so
+// it defaults to "manual" and gets the same one-more-look confirmation.
+const orderNumberManuallyEntered = ref(!!session.value?.orderNumber?.trim());
 const submitting = ref(false);
 const submitError = ref<string | null>(null);
 const lastSubmitError = ref<unknown>(null);
@@ -264,10 +269,25 @@ if (settingsStore.showItemPrices && session.value?.lines.length) {
 }
 const result = ref<FoodSalesOrderResult | null>(null);
 
-// Explicit escape hatch from the "scan first" SOP — for whenever OCR just
-// isn't going to work (damaged label, no signal to download the model,
-// stuck misreading the same photo) rather than making the user fight
-// through failed scans before the field quietly unlocks on its own.
+// Warm the OCR service as soon as this screen opens — the medium-tier model
+// is a ~139MB one-time download, so starting it now lets it fetch/initialize
+// while the user is still framing their photo instead of only starting
+// after they've already captured and cropped it. The rejection is swallowed
+// here on purpose: runOcrOnCrop re-awaits this same cached promise and
+// surfaces its own "Scan Failed" alert if it's still unresolved by then.
+onMounted(() => {
+  void getOcrService().catch(() => {});
+});
+
+function handleOrderNumberInput(): void {
+  orderNumberManuallyEntered.value = true;
+  sessionStore.setOrderNumber(orderNumberInput.value);
+}
+
+// Quick "clear and type" shortcut — for whenever OCR just isn't going to
+// work (damaged label, no signal to download the model, stuck misreading
+// the same photo) rather than making the user clear a wrong scan result by
+// hand before typing the real number.
 async function enableManualEntry(): Promise<void> {
   ocrAttempted.value = true;
   orderNumberInput.value = '';
@@ -354,7 +374,14 @@ async function runOcrOnCrop(croppedBlob: Blob): Promise<void> {
     const canvas = await preprocessForOcr(croppedBlob);
     const service = await getOcrService();
     const result = await service.recognize(canvas);
-    const text = normalizeOcrText(result.text, orderNumberFormatRule.value);
+    // result.text joins every line the detector found in the crop — the 15%
+    // pad (see OcrCropModal's CROP_PAD_RATIO) can catch a sliver of the row
+    // above/below the drawn box, and that sliver's text was getting glued
+    // onto the real order number (e.g. a stray "ER" from the row above
+    // prefixed onto the digits). The pad is symmetric, so the line the user
+    // actually boxed is always the one nearest the crop's vertical center —
+    // any bleed-through line sits further off-center by construction.
+    const text = normalizeOcrText(selectPrimaryLineText(result.lines, canvas.height), orderNumberFormatRule.value);
     if (!text) {
       const alert = await alertController.create({
         header: 'No Text Found',
@@ -365,6 +392,7 @@ async function runOcrOnCrop(croppedBlob: Blob): Promise<void> {
       return;
     }
     orderNumberInput.value = text;
+    orderNumberManuallyEntered.value = false;
     sessionStore.setOrderNumber(text);
   } catch {
     const alert = await alertController.create({
@@ -466,6 +494,28 @@ const orderNumberFormatRule = computed(() => {
 // and numbers, where a "fix" could just as easily turn a correct letter
 // into a wrong digit.
 const DIGIT_LOOKALIKES: Record<string, string> = { O: '0', I: '1', L: '1', S: '5', B: '8', Z: '2' };
+
+// Picks the one line the user actually boxed out of everything the detector
+// found in the (symmetrically) padded crop — the line whose vertical center
+// is closest to the crop's own center, since that's always where the
+// original unpadded selection sat.
+function selectPrimaryLineText(lines: { text: string; box: { y: number; height: number } }[][], canvasHeight: number): string {
+  const centerY = canvasHeight / 2;
+  let best: typeof lines[number] | null = null;
+  let bestDist = Infinity;
+  for (const line of lines) {
+    if (!line.length) continue;
+    const top = Math.min(...line.map((word) => word.box.y));
+    const bottom = Math.max(...line.map((word) => word.box.y + word.box.height));
+    const dist = Math.abs((top + bottom) / 2 - centerY);
+    if (dist < bestDist) {
+      bestDist = dist;
+      best = line;
+    }
+  }
+  return best ? best.map((word) => word.text).join('') : '';
+}
+
 function normalizeOcrText(raw: string, rule: OrderNumberFormatRule | null): string {
   let text = raw.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
   if (rule?.digitsOnly) {
@@ -556,8 +606,37 @@ async function verifyLotAvailability(lines: OrderLine[], locationCode?: string):
   return results.find((r): r is string => r !== null) ?? null;
 }
 
+// One more look at a hand-typed order number before it goes to BC — a
+// scanned number already went through the crop + format-validation steps,
+// but a typed one only has the format check, which can't catch a wrong
+// number that still happens to match the right shape.
+async function confirmManualOrderNumber(): Promise<boolean> {
+  return new Promise((resolve) => {
+    void alertController.create({
+      header: 'Confirm Order Number',
+      message: 'This order number was typed manually. Please confirm it before submitting.',
+      inputs: [{ name: 'orderNumber', type: 'text', value: orderNumberInput.value }],
+      buttons: [
+        { text: 'Cancel', role: 'cancel', handler: () => resolve(false) },
+        {
+          text: 'Confirm',
+          handler: (data: { orderNumber?: string }) => {
+            const value = (data.orderNumber ?? '').trim();
+            if (!value) return false; // keep the alert open rather than confirm a blank number
+            orderNumberInput.value = value;
+            sessionStore.setOrderNumber(value);
+            resolve(true);
+            return true;
+          },
+        },
+      ],
+    }).then((alert) => alert.present());
+  });
+}
+
 async function handleSubmit(): Promise<void> {
   if (!session.value?.customer || !canSubmit.value) return;
+  if (orderNumberManuallyEntered.value && !(await confirmManualOrderNumber())) return;
   submitting.value = true;
   submitError.value = null;
 
@@ -678,7 +757,6 @@ function finishAndGoHome(): void {
     margin-right: 0;
   }
 
-  .order-no-hint { grid-column: 1; order: 2; }
   .ocr-action-row { grid-column: 1; order: 2; }
   .order-no-error { grid-column: 1; order: 2; }
 
@@ -727,10 +805,22 @@ function finishAndGoHome(): void {
   margin: 4px 16px 0;
 }
 
-.order-no-hint {
-  color: var(--app-text-muted);
-  font-size: var(--text-xs);
-  margin: 6px 16px 0;
+/* ion-skeleton-text's own :animated shimmer animates background-position,
+   which forces a main-thread repaint every frame — it visibly freezes
+   whenever the main thread is busy, which synchronous WASM OCR inference
+   reliably keeps it during (worse on weaker mobile CPUs). opacity is
+   compositor-only, so this pulse keeps animating through that same stretch
+   instead of relying on :animated at all. */
+.order-no-skeleton {
+  width: 70%;
+  height: 20px;
+  margin: 8px 0;
+  animation: order-no-skeleton-pulse 1s ease-in-out infinite;
+}
+
+@keyframes order-no-skeleton-pulse {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 1; }
 }
 
 /* ── OCR scan button — deliberately NOT a bare small icon. Solid,

@@ -224,6 +224,7 @@ import { generateId } from '@/utils/id';
 import LotEditorPopover from '@/components/LotEditorPopover.vue';
 import QuantityEditorPopover from '@/components/QuantityEditorPopover.vue';
 import OcrCropModal from '@/components/OcrCropModal.vue';
+import OcrCameraCaptureModal from '@/components/OcrCameraCaptureModal.vue';
 import { warmOcrService, recognizeOrderNumber, type OcrWord } from '@/services/ocr.service';
 import { CROP_PAD_RATIO } from '@/utils/ocrCrop';
 import { useCameraAvailability, isCameraPermissionDenied, reportCameraError, getCameraDeniedGuidance } from '@/composables/useCameraTroubleshoot';
@@ -295,6 +296,8 @@ async function enableManualEntry(): Promise<void> {
   await orderNumberInputEl.value?.$el.setFocus();
 }
 
+const getUserMediaSupported = 'mediaDevices' in navigator && 'getUserMedia' in navigator.mediaDevices;
+
 async function triggerOcrCapture(): Promise<void> {
   // Known-blocked permission — skip opening a camera UI we already know is
   // dead and show the fix-it message right away, rather than making the
@@ -316,7 +319,29 @@ async function triggerOcrCapture(): Promise<void> {
     await alert.present();
     return;
   }
-  ocrFileInput.value?.click();
+
+  if (getUserMediaSupported) {
+    await captureViaCamera();
+  } else {
+    ocrFileInput.value?.click();
+  }
+}
+
+// The custom camera path (forced continuous autofocus, torch control,
+// burst-capture-pick-sharpest-frame — see OcrCameraCaptureModal) is tried
+// first wherever getUserMedia is available; its own error panel offers a
+// way back to the classic file-input picker, so a getUserMedia-specific
+// failure (e.g. a browser that reports support but the permission prompt
+// behaves oddly) never strands the user without a way to scan at all.
+async function captureViaCamera(): Promise<void> {
+  const modal = await modalController.create({ component: OcrCameraCaptureModal });
+  await modal.present();
+  const { data, role } = await modal.onDidDismiss<Blob>();
+  if (role === 'classic-camera') {
+    ocrFileInput.value?.click();
+    return;
+  }
+  if (role === 'confirm' && data) await processCapturedImage(data);
 }
 
 function loadImageFromBlob(blob: Blob): Promise<HTMLImageElement> {
@@ -417,13 +442,17 @@ async function handleOcrCapture(ev: Event): Promise<void> {
   const file = input.files?.[0];
   input.value = '';
   if (!file) return;
+  await processCapturedImage(file);
+}
 
+// Shared by both capture paths (the custom camera modal and the classic
+// file-input picker) — lets the user pinpoint just the order number in the
+// photo before OCR ever runs on it, so other printed text (or a barcode
+// sitting right next to it, as on these labels) doesn't confuse the read.
+async function processCapturedImage(source: Blob): Promise<void> {
   ocrAttempted.value = true;
 
-  // Let the user pinpoint just the order number in the photo before OCR
-  // ever runs on it, so other printed text (or a barcode sitting right next
-  // to it, as on these labels) doesn't confuse the read.
-  const imageUrl = URL.createObjectURL(file);
+  const imageUrl = URL.createObjectURL(source);
   let croppedBlob: Blob | null = null;
   try {
     const modal = await modalController.create({

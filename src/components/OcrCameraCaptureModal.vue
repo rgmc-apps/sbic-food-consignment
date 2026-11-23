@@ -18,7 +18,14 @@
 
     <ion-content class="capture-content" :scroll-y="false">
       <div class="capture-wrap">
-        <video ref="videoEl" autoplay playsinline muted class="capture-video" />
+        <video
+          ref="videoEl"
+          autoplay
+          playsinline
+          muted
+          class="capture-video"
+          :style="{ transform: `scale(${zoomLevel})` }"
+        />
 
         <div v-if="status !== 'error'" class="capture-ui">
           <div class="capture-frame">
@@ -28,6 +35,25 @@
             <div class="corner br" />
           </div>
           <p class="capture-hint">{{ hintText }}</p>
+
+          <!-- Digital zoom — software-cropped at capture time to match what
+               this shows, not just a cosmetic preview scale (see
+               captureBurst). Works on every device regardless of hardware
+               zoom support, which is what small print on packing slips
+               actually needs: a way to confirm it's in focus before
+               shooting, not just a bigger-looking preview. -->
+          <div v-if="status === 'ready' || status === 'capturing'" class="zoom-control">
+            <span class="zoom-label">{{ zoomLevel.toFixed(1) }}×</span>
+            <input
+              type="range"
+              min="1"
+              max="3"
+              step="0.1"
+              v-model.number="zoomLevel"
+              class="zoom-slider"
+              aria-label="Zoom"
+            />
+          </div>
         </div>
 
         <!-- Camera troubleshooting — same pattern as the barcode scanner's
@@ -50,16 +76,14 @@
       </div>
     </ion-content>
 
-    <ion-footer v-if="status === 'ready' || status === 'capturing'">
-      <ion-toolbar class="shutter-toolbar">
-        <button
-          type="button"
-          class="shutter-btn"
-          :disabled="status === 'capturing'"
-          aria-label="Take photo"
-          @click="captureBurst"
-        />
-      </ion-toolbar>
+    <ion-footer v-if="status === 'ready' || status === 'capturing'" class="shutter-footer">
+      <button
+        type="button"
+        class="shutter-btn"
+        :disabled="status === 'capturing'"
+        aria-label="Take photo"
+        @click="captureBurst"
+      />
     </ion-footer>
   </ion-page>
 </template>
@@ -91,6 +115,8 @@ const errorOpenSettingsLabel = ref('');
 
 const torchSupported = ref(false);
 const torchOn = ref(false);
+
+const zoomLevel = ref(1);
 
 const hintText = computed(() => {
   if (status.value === 'starting') return 'Starting camera…';
@@ -216,14 +242,23 @@ async function captureBurst(): Promise<void> {
   if (!video || !video.videoWidth) return;
   status.value = 'capturing';
 
+  // Center-crop to the zoomed region at the video's native resolution — no
+  // upscaling, so this is the same honest trade a physical zoom lens makes
+  // (less area, not invented detail), and it matches what the zoom slider
+  // showed on screen rather than silently capturing the unzoomed full frame.
+  const cropW = Math.round(video.videoWidth / zoomLevel.value);
+  const cropH = Math.round(video.videoHeight / zoomLevel.value);
+  const cropX = Math.round((video.videoWidth - cropW) / 2);
+  const cropY = Math.round((video.videoHeight - cropH) / 2);
+
   let best: { score: number; canvas: HTMLCanvasElement } | null = null;
   for (let i = 0; i < BURST_FRAME_COUNT; i++) {
     const score = sharpnessScore(video);
     if (!best || score > best.score) {
       const canvas = document.createElement('canvas');
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-      canvas.getContext('2d')!.drawImage(video, 0, 0);
+      canvas.width = cropW;
+      canvas.height = cropH;
+      canvas.getContext('2d')!.drawImage(video, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
       best = { score, canvas };
     }
     if (i < BURST_FRAME_COUNT - 1) await new Promise((r) => setTimeout(r, BURST_FRAME_INTERVAL_MS));
@@ -269,6 +304,8 @@ onUnmounted(() => { stopCamera(); });
   flex: 1;
   object-fit: cover;
   min-height: 260px;
+  transform-origin: center;
+  transition: transform 0.1s linear;
 }
 
 .capture-ui {
@@ -312,12 +349,46 @@ onUnmounted(() => { stopCamera(); });
   padding: 0 24px;
 }
 
-.shutter-toolbar {
+.zoom-control {
+  /* Only this control needs taps — the rest of .capture-ui stays
+     pointer-events: none so it doesn't block tapping through to the video
+     (not that the video itself is interactive, but so this is the one
+     deliberate exception rather than the whole overlay silently eating
+     touches). */
+  pointer-events: all;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 24px;
+  padding: 8px 16px;
+  background: rgba(0, 0, 0, 0.45);
+  border-radius: 20px;
+}
+
+.zoom-label {
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  min-width: 28px;
+}
+
+.zoom-slider {
+  width: 160px;
+  accent-color: var(--app-blue);
+}
+
+/* A plain flex container, not an ion-toolbar — ion-toolbar renders its
+   slotted content through its own internal start/secondary/end column
+   layout in its shadow DOM, which silently overrides a scoped
+   display/justify-content set on the host and was why the shutter button
+   rendered pinned to the left instead of centered. ion-footer has no such
+   internal column system, so plain flexbox here actually centers it. */
+.shutter-footer {
   --background: #000;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 10px 0;
+  padding: 14px 0;
 }
 
 .shutter-btn {

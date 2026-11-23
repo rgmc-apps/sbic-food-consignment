@@ -43,8 +43,15 @@ export function getCameraDeniedGuidance(): CameraDeniedGuidance {
   const ua = navigator.userAgent;
   if (/Android/i.test(ua)) {
     return {
-      message: 'Camera access is blocked for this site. Tap "Open App Settings" below, then Permissions → Camera → Allow and come back. If nothing opens, tap the lock/tune icon next to the address bar instead → Permissions → Camera → Allow.',
-      openSettingsLabel: 'Open App Settings',
+      // This "denied" state (navigator.permissions.query) is Chrome's own
+      // per-site permission, not whether Chrome itself can touch the camera
+      // hardware at all — those are two separate toggles. The per-site fix
+      // (the lock/tune icon) is what actually clears this state, so it leads
+      // here; "Open App Settings" only helps the rarer case where Chrome
+      // itself was never granted camera access at the OS level, which is why
+      // it's now framed as the fallback, not the first thing to try.
+      message: 'Camera access is blocked for this site in Chrome. Tap the lock (or "i"/tune) icon just left of the web address → Permissions → Camera → Allow, then reload this page. If Camera isn\'t listed there at all, tap "Open Chrome\'s App Settings" below instead, then Permissions → Camera → Allow, and come back.',
+      openSettingsLabel: "Open Chrome's App Settings",
       openSettings: openAndroidAppSettings,
     };
   }

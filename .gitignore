@@ -21,6 +21,7 @@ desktop.ini
 *.suo
 *.user
 *.local
+templates/
 
 # Claude Code session files
 .claude/

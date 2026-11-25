@@ -427,7 +427,7 @@ async function runOcrOnCrop(croppedBlob: Blob): Promise<void> {
     // trims to the expected length for known formats as a second pass, for
     // the rarer case where detection merges the label and the digits into
     // one box (no separate box left to filter out).
-    const text = normalizeOcrText(selectPrimaryLineText(lines, width, height), orderNumberFormatRule.value);
+    const text = normalizeOcrText(selectPrimaryLineText(lines, width, height, orderNumberFormatRule.value), orderNumberFormatRule.value);
     if (!text) {
       const alert = await alertController.create({
         header: 'No Text Found',
@@ -529,7 +529,7 @@ const ORDER_NUMBER_FORMAT_RULES: OrderNumberFormatRule[] = [
   { name: 'TikTok', customerMatch: /tik\s*tok/i, pattern: /^\d{18}$/, length: 18, description: '18 digits', digitsOnly: true },
   { name: 'Zalora', customerMatch: /zalora/i, pattern: /^\d{9}$/, length: 9, description: '9 digits', digitsOnly: true },
   { name: 'Shopify', customerMatch: /shopify/i, pattern: /^[A-Za-z0-9]{6}$/, length: 6, description: '6 letters/numbers', digitsOnly: false },
-  { name: 'Edamama', customerMatch: /edmama/i, pattern: /^SH[0-9A-F]{8}$/, length: 10, description: 'SH followed by 8 letters/numbers', digitsOnly: false },
+  { name: 'Edamama', customerMatch: /edamama/i, pattern: /^SH[0-9A-F]{8}$/, length: 10, description: 'SH followed by 8 letters/numbers', digitsOnly: false },
   { name: 'GrabMart', customerMatch: /grabmart/i, pattern: /^\d{10}[A-Z0-9]{14}$/, length: 24, description: '24 letters/numbers', digitsOnly: false },
 ];
 
@@ -547,6 +547,16 @@ const orderNumberFormatRule = computed(() => {
 // into a wrong digit.
 const DIGIT_LOOKALIKES: Record<string, string> = { O: '0', I: '1', L: '1', S: '5', B: '8', Z: '2' };
 
+// Shared with normalizeOcrText below — cleans a single detected token the
+// same way the final result is cleaned (strip punctuation, uppercase,
+// correct digit/letter lookalikes for digits-only formats), so a lone word
+// can be tested against the expected pattern on its own.
+function cleanOcrToken(raw: string, rule: OrderNumberFormatRule | null): string {
+  let text = raw.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+  if (rule?.digitsOnly) text = text.replace(/[A-Z]/g, (ch) => DIGIT_LOOKALIKES[ch] ?? ch);
+  return text;
+}
+
 // Excludes anything the detector found only in OcrCropModal's padding
 // margin — not just a whole stray line (a sliver of the row above/below
 // bleeding in), but also a stray word on the SAME line (e.g. a label like
@@ -555,7 +565,7 @@ const DIGIT_LOOKALIKES: Record<string, string> = { O: '0', I: '1', L: '1', S: '5
 // always occupies the crop's central 1 / (1 + 2 * CROP_PAD_RATIO) box on
 // both axes — anything whose center falls outside that box only exists
 // because of the padding, not because the user boxed it.
-function selectPrimaryLineText(lines: OcrWord[][], canvasWidth: number, canvasHeight: number): string {
+function selectPrimaryLineText(lines: OcrWord[][], canvasWidth: number, canvasHeight: number, rule: OrderNumberFormatRule | null): string {
   const marginFrac = CROP_PAD_RATIO / (1 + 2 * CROP_PAD_RATIO);
   const left = canvasWidth * marginFrac;
   const right = canvasWidth * (1 - marginFrac);
@@ -566,6 +576,21 @@ function selectPrimaryLineText(lines: OcrWord[][], canvasWidth: number, canvasHe
     const cy = word.box.y + word.box.height / 2;
     return cx >= left && cx <= right && cy >= top && cy <= bottom;
   };
+
+  // A label ("Order ID:") or a trailing qualifier ("package 1") is almost
+  // always printed as its own whitespace-separated word, distinct from the
+  // order ID itself — so before joining anything, check each in-zone word on
+  // its own: if one already matches the expected format exactly, use it
+  // verbatim and never give surrounding words a chance to get concatenated
+  // onto it at all. This is what actually "blocks" a neighbor from leaking
+  // in, rather than trying to trim it back off after the fact.
+  if (rule) {
+    for (const line of lines) {
+      for (const word of line) {
+        if (inZone(word) && rule.pattern.test(cleanOcrToken(word.text, rule))) return word.text;
+      }
+    }
+  }
 
   let bestZoneWords: OcrWord[] = [];
   let bestZoneLen = 0;
@@ -606,13 +631,14 @@ function selectPrimaryLineText(lines: OcrWord[][], canvasWidth: number, canvasHe
 // leaves a bare trailing digit that the length-trim below would "fix" by
 // chopping the real leading digit instead, silently producing a wrong but
 // still-valid-looking number. Strip both known markers before anything else.
-const TRAILING_PACKAGE_MARKER = /\s*\(\s*\d+\s*\)\s*$|\s*package\s*#?\s*\d*\s*$/i;
+// "pack\w*" (not the full literal word) because a real device capture showed
+// the detector merging the ID and marker into ONE box with the marker itself
+// OCR'd as a truncated "PACKA" — matching on just the distinctive "pack"
+// prefix still catches that, since no real order ID format here ends in it.
+const TRAILING_PACKAGE_MARKER = /\s*\(\s*\d+\s*\)\s*$|\s*pack\w*\s*#?\s*\d*\s*$/i;
 
 function normalizeOcrText(raw: string, rule: OrderNumberFormatRule | null): string {
-  let text = raw.replace(TRAILING_PACKAGE_MARKER, '').replace(/[^A-Za-z0-9]/g, '').toUpperCase();
-  if (rule?.digitsOnly) {
-    text = text.replace(/[A-Z]/g, (ch) => DIGIT_LOOKALIKES[ch] ?? ch);
-  }
+  let text = cleanOcrToken(raw.replace(TRAILING_PACKAGE_MARKER, ''), rule);
   // Every format is an exact fixed length. selectPrimaryLineText already
   // drops whole stray boxes found only in the crop's padding margin, but
   // detection can still merge a label and the digits into a SINGLE box when

@@ -529,6 +529,8 @@ const ORDER_NUMBER_FORMAT_RULES: OrderNumberFormatRule[] = [
   { name: 'TikTok', customerMatch: /tik\s*tok/i, pattern: /^\d{18}$/, length: 18, description: '18 digits', digitsOnly: true },
   { name: 'Zalora', customerMatch: /zalora/i, pattern: /^\d{9}$/, length: 9, description: '9 digits', digitsOnly: true },
   { name: 'Shopify', customerMatch: /shopify/i, pattern: /^[A-Za-z0-9]{6}$/, length: 6, description: '6 letters/numbers', digitsOnly: false },
+  { name: 'Edamama', customerMatch: /edmama/i, pattern: /^SH[0-9A-F]{8}$/, length: 10, description: 'SH followed by 8 letters/numbers', digitsOnly: false },
+  { name: 'GrabMart', customerMatch: /grabmart/i, pattern: /^\d{10}[A-Z0-9]{14}$/, length: 24, description: '24 letters/numbers', digitsOnly: false },
 ];
 
 const orderNumberFormatRule = computed(() => {
@@ -596,8 +598,18 @@ function selectPrimaryLineText(lines: OcrWord[][], canvasWidth: number, canvasHe
   return fallbackLine ? fallbackLine.map((w) => w.text).join('') : '';
 }
 
+// Some marketplaces print a package-count marker right after the order ID
+// on the same line (e.g. Shopee's "package 1", TikTok's "(1)") — close
+// enough that it isn't a separate box the zone-filter can drop, and once
+// stripped of punctuation it looks just like extra order-ID characters. A
+// parenthesized count is especially dangerous for digits-only formats: it
+// leaves a bare trailing digit that the length-trim below would "fix" by
+// chopping the real leading digit instead, silently producing a wrong but
+// still-valid-looking number. Strip both known markers before anything else.
+const TRAILING_PACKAGE_MARKER = /\s*\(\s*\d+\s*\)\s*$|\s*package\s*#?\s*\d*\s*$/i;
+
 function normalizeOcrText(raw: string, rule: OrderNumberFormatRule | null): string {
-  let text = raw.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+  let text = raw.replace(TRAILING_PACKAGE_MARKER, '').replace(/[^A-Za-z0-9]/g, '').toUpperCase();
   if (rule?.digitsOnly) {
     text = text.replace(/[A-Z]/g, (ch) => DIGIT_LOOKALIKES[ch] ?? ch);
   }

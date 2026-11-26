@@ -530,7 +530,7 @@ const ORDER_NUMBER_FORMAT_RULES: OrderNumberFormatRule[] = [
   { name: 'Zalora', customerMatch: /zalora/i, pattern: /^\d{9}$/, length: 9, description: '9 digits', digitsOnly: true },
   { name: 'Shopify', customerMatch: /shopify/i, pattern: /^[A-Za-z0-9]{6}$/, length: 6, description: '6 letters/numbers', digitsOnly: false },
   { name: 'Edamama', customerMatch: /edamama/i, pattern: /^SH[0-9A-F]{8}$/, length: 10, description: 'SH followed by 8 letters/numbers', digitsOnly: false },
-  { name: 'GrabMart', customerMatch: /grabmart/i, pattern: /^\d{10}[A-Z0-9]{14}$/, length: 24, description: '24 letters/numbers', digitsOnly: false },
+  { name: 'GrabMart', customerMatch: /grabmart/i, pattern: /^[A-Z]{2}\d{3}$/, length: 5, description: '2 letters, 3 digits (e.g. GM-186)', digitsOnly: false },
 ];
 
 const orderNumberFormatRule = computed(() => {

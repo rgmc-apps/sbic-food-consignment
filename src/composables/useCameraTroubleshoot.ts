@@ -31,7 +31,13 @@ function openAndroidAppSettings(): void {
     : /Firefox/i.test(ua) ? 'org.mozilla.firefox'
     : /EdgA/i.test(ua) ? 'com.microsoft.emmx'
     : 'com.android.chrome';
-  window.location.href = `intent://${pkg}#Intent;scheme=package;action=android.settings.APPLICATION_DETAILS_SETTINGS;end`;
+  // ACTION_APPLICATION_DETAILS_SETTINGS needs an opaque "package:<id>" data
+  // URI. A single "intent:" (no "//") keeps it opaque; "intent://" builds a
+  // hierarchical "package://<id>" URI instead, whose scheme-specific-part
+  // still carries the leading "//" — Settings then looks for a package
+  // literally named "//<id>", finds nothing, and the intent silently fails
+  // to resolve instead of opening the app-info screen.
+  window.location.href = `intent:${pkg}#Intent;scheme=package;action=android.settings.APPLICATION_DETAILS_SETTINGS;end`;
 }
 
 /** Camera-permission-denied guidance, tailored to this device/browser —
